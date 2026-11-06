@@ -54,7 +54,22 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
 .ac{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
 .ac button{border:1px solid var(--line);background:rgba(255,255,255,.1);color:var(--text);border-radius:14px;padding:12px;font:inherit}
 .rule{font-size:13px;color:var(--muted);margin:10px 0 0}
-.decision{margin-top:10px;padding:12px;border-radius:14px;background:rgba(0,0,0,.22);font-size:14px}
+.chip{font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+.chip.cool{background:rgba(56,189,248,.18);color:#7dd3fc;border-color:rgba(56,189,248,.4)}
+.chip.off{background:rgba(148,163,184,.18);color:#cbd5e1;border-color:rgba(148,163,184,.35)}
+.chip.hold{background:rgba(74,222,128,.15);color:#86efac;border-color:rgba(74,222,128,.35)}
+.chip.dim{opacity:.7;border-style:dashed}
+.gauge{margin:34px 14px 4px;position:relative}
+.gtrack{height:10px;border-radius:6px;background:rgba(255,255,255,.12);position:relative}
+.gband{position:absolute;top:0;bottom:0;border-radius:6px;background:rgba(74,222,128,.5)}
+.gdot{position:absolute;top:50%;width:20px;height:20px;border-radius:50%;border:3px solid #fff;background:var(--c,#4ade80);transform:translate(-50%,-50%);box-shadow:0 0 0 5px rgba(255,255,255,.12);transition:left .5s}
+.gdot b{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);font-size:14px;font-weight:600;white-space:nowrap;color:var(--text)}
+.gticks{position:relative;height:16px;margin-top:10px;font-size:11px;color:var(--muted)}
+.gticks span{position:absolute;transform:translateX(-50%)}
+.why{margin-top:10px;font-size:14px}
+details.how{margin-top:12px;font-size:13px;color:var(--muted)}
+details.how summary{cursor:pointer}
+details.how .rule{margin:8px 0 0}
 .hr{display:flex;align-items:center;gap:10px}.langs{display:flex;gap:6px}.langs button{border:2px solid transparent;background:none;padding:0;border-radius:6px;line-height:0;opacity:.55;cursor:pointer}.langs button.on{opacity:1;border-color:rgba(255,255,255,.7)}.langs img{width:28px;height:19px;border-radius:3px;display:block}
 .foot{text-align:center;font-size:12px;color:var(--muted);margin:0}
 @media(prefers-reduced-motion:no-preference){.orbs i{animation:d 24s ease-in-out infinite alternate}.orbs i:nth-child(2){animation-duration:30s}.orbs i:nth-child(3){animation-duration:36s}@keyframes d{to{transform:translate(6vmax,4vmax)}}}
@@ -82,9 +97,9 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
   <div class="links"><a id="csv" href="#" data-i18n="csv">CSV indir</a><a id="json" href="#" data-i18n="json">JSON indir</a></div>
 </section>
 <section class="glass">
-  <div class="label" data-i18n="decisionTitle">Klima kararı</div>
-  <div class="decision" id="decision">...</div>
-  <p class="rule" id="rule"></p>
+  <div class="row"><span class="label" data-i18n="decisionTitle">Klima kararı</span><span class="chip hold" id="chip">...</span></div>
+  <div class="gauge"><div class="gtrack"><div class="gband" id="gband"></div><div class="gdot" id="gdot"><b id="gval"></b></div></div><div class="gticks"><span id="gmin"></span><span id="gmax"></span></div></div>
+  <div class="why" id="why"></div>
   <label class="auto"><span><span data-i18n="auto">Otomatik klima kontrolü</span><small data-i18n="autoHint">Kapalıyken klima hiç kendiliğinden çalışmaz.</small></span><input id="auto" type="checkbox"></label>
   <div class="ac"><button id="acon" data-i18n="acon">Soğutmayı aç</button><button id="acoff" data-i18n="acoff">Kapat</button></div>
   <div class="cfg">
@@ -92,6 +107,7 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
     <label><span data-i18n="fan">Elle açarken fan</span><select id="fan"><option value="auto" data-i18n="f_auto">Otomatik</option><option value="high" data-i18n="f_high">Yüksek</option><option value="med" data-i18n="f_med">Orta</option><option value="low" data-i18n="f_low">Düşük</option><option value="quiet" data-i18n="f_quiet">Sessiz</option></select></label>
   </div>
   <div class="meta" id="acstate"></div>
+  <details class="how"><summary data-i18n="how">Kural nasıl çalışır?</summary><p class="rule" id="rule"></p></details>
 </section>
 <section class="glass">
   <div class="label" data-i18n="comfort">Konfor aralığı</div>
@@ -134,7 +150,7 @@ function render() {
   $('badge').textContent = !sample ? t('noData') : fresh ? t('live') : t('stale');
   $('badge').className = 'badge ' + (!sample ? '' : fresh ? 'ok' : 'bad');
   $('rule').textContent = describe(cfg, lang);
-  if (!sample) { $('decision').textContent = t('noReading'); return; }
+  if (!sample) { $('chip').textContent = '—'; $('chip').className = 'chip off'; $('why').textContent = t('noReading'); return; }
   $('t').textContent = sample.temperature.toFixed(1);
   $('h').textContent = pct(Math.round(sample.humidity));
   $('arc').style.strokeDashoffset = 264 * (1 - Math.min(100, sample.humidity) / 100);
@@ -144,10 +160,19 @@ function render() {
   $('state').textContent = parts.length ? t('roomIs', parts.join(t('and'))) : t('inBand');
   $('meta').textContent = t('lastReading') + clock.format(sample.at) + (fresh ? '' : t('staleSuffix'));
   const p = plan(cfg, sample.temperature);
-  const temp = sample.temperature.toFixed(1);
-  const text = p.action === 'cool' ? t('decCool', temp, p.over.toFixed(1), p.target, fanName(p.fan))
-    : p.action === 'off' ? t('decOff', temp) : t('decHold', temp);
-  $('decision').textContent = text + (cfg.auto ? t('autoOn') : t('autoOff'));
+  const T = sample.temperature, temp = T.toFixed(1);
+  const lo = cfg.tMin - 2, hi = cfg.tMax + 2, pc = v => (v - lo) / (hi - lo) * 100;
+  $('gband').style.left = pc(cfg.tMin) + '%'; $('gband').style.width = pc(cfg.tMax) - pc(cfg.tMin) + '%';
+  $('gdot').style.left = Math.min(96, Math.max(4, pc(T))) + '%';
+  $('gdot').style.setProperty('--c', { cool: '#fb923c', off: '#38bdf8', hold: '#4ade80' }[p.action]);
+  $('gval').textContent = temp + '°';
+  $('gmin').style.left = pc(cfg.tMin) + '%'; $('gmin').textContent = cfg.tMin + '°';
+  $('gmax').style.left = pc(cfg.tMax) + '%'; $('gmax').textContent = cfg.tMax + '°';
+  $('chip').className = 'chip ' + p.action + (cfg.auto ? '' : ' dim');
+  $('chip').textContent = p.action === 'cool' ? t('chipCool', p.target, fanName(p.fan)) : p.action === 'off' ? t('chipOff') : t('chipHold');
+  const why = p.action === 'cool' ? t('whyOver', p.over.toFixed(1))
+    : p.action === 'off' ? t('whyUnder', (cfg.tMin - T).toFixed(1)) : t('whyIn');
+  $('why').textContent = why + (cfg.auto ? '' : t('suggestOnly'));
 }
 
 function nice(lo, hi, n) {
