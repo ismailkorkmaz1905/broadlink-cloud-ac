@@ -139,6 +139,7 @@ export default {
     }
     if (!url.pathname.startsWith('/api/')) return withCookie(await env.ASSETS.fetch(request));
     if (!authorized) return json({ error: 'unauthorized' }, 401);
+    if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
     if (url.pathname === '/api/sensor') return sensor(url, env);
     if (url.pathname === '/api/profile') return profile(request, env, keyed);
     if (url.pathname === '/api/ac') {

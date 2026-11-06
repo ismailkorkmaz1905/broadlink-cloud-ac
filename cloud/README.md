@@ -24,6 +24,8 @@ npx wrangler secret put BROADLINK_SESSION   # JSON, see below
 npx wrangler deploy
 ```
 
+`npm run deploy` (from the repo root) stamps the version from `package.json` and the short commit hash into the Worker; the dashboard shows both at the bottom, so you can tell which build is live.
+
 Dashboard: `https://<worker>.<subdomain>.workers.dev/?k=<VIEW_KEY>` (the key is stored in a cookie). Scripts can send the key as an `x-key` header.
 
 ## BroadLink session
@@ -41,6 +43,7 @@ Capture it once with an HTTPS proxy app on your phone while opening the AC/senso
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/sensor?range=6s\|24s\|7g` | latest sample and history; add `&format=csv\|json` to download |
+| `GET /api/version` | version and build shown in the dashboard footer |
 | `GET/PUT /api/profile` | comfort band and automation switch |
 | `GET /api/ac` / `POST /api/ac` | last AC command / send `{"action":"off"}` or `{"action":"cool","target":24,"fan":"auto"}`; optional `"auto": true\|false` switches the automation |
 

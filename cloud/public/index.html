@@ -104,6 +104,7 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
   <button class="save" id="save" data-i18n="save">Kaydet</button>
   <div class="meta" id="cfgmsg"></div>
 </section>
+<p class="foot" id="ver"></p>
 <p class="foot" data-i18n="foot">Veri BroadLink bulutundan dakikada bir okunur · Saatler Singapur saati</p>
 </main>
 <script type="module">
@@ -227,10 +228,11 @@ async function load() {
   $('json').href = '/api/sensor?range=' + range + '&format=json';
 }
 
-async function loadCfg() {
+async function loadCfg(keepTarget = false) {
   try { const d = await api('/api/profile'); if (d.profile) cfg = { ...cfg, ...d.profile }; } catch { /* defaults */ }
   $('tmin').value = cfg.tMin; $('tmax').value = cfg.tMax; $('hmin').value = cfg.hMin; $('hmax').value = cfg.hMax;
-  $('auto').checked = cfg.auto === true; $('target').value = setpoint(cfg);
+  $('auto').checked = cfg.auto === true;
+  if (!keepTarget) $('target').value = Math.round((cfg.tMin + cfg.tMax) / 2); // the range is target -1/+1, so its middle is the target
   render(); charts();
 }
 
@@ -261,6 +263,9 @@ function renderAc() {
   const what = s.power === 'on' ? t('cmdCool', s.target, fanName(s.fan)) : t('cmdOff');
   $('acstate').textContent = t('lastCmd') + what + ' · ' + hm.format(s.at) + (s.source === 'auto' ? t('srcAuto') : t('srcManual')) + (s.ok ? '' : t('cmdFailed'));
 }
+let ver = null;
+function renderVer() { $('ver').textContent = ver ? `${t('version')} ${ver.version} · ${ver.build}` : ''; }
+async function loadVersion() { try { ver = await api('/api/version'); renderVer(); } catch { /* optional */ } }
 const setAcMsg = key => { acMsg = key; renderAc(); };
 
 async function loadAc() {
@@ -279,7 +284,7 @@ async function ac(action) {
     await api('/api/ac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target, fan: $('fan').value }) });
   } catch { setAcMsg('sendFail'); return; }
   loadAc();
-  if (action === 'cool') loadCfg(); // the server moves the comfort range to the new target
+  if (action === 'cool') loadCfg(true); // the server moves the comfort range to the new target; keep what was typed
 }
 $('acon').onclick = () => ac('cool');
 $('acoff').onclick = () => ac('off');
@@ -299,7 +304,7 @@ function applyLang() {
   document.querySelectorAll('#langs button').forEach(b => b.classList.toggle('on', b.dataset.lang === lang));
   setLocale();
   $('cfgmsg').textContent = cfgMsg ? t(cfgMsg) : '';
-  render(); charts(); renderAc();
+  render(); charts(); renderAc(); renderVer();
 }
 $('langs').onclick = e => {
   const b = e.target.closest('button'); if (!b || b.dataset.lang === lang) return;
@@ -310,6 +315,7 @@ $('langs').onclick = e => {
 lang = pickLang();
 applyLang();
 loadAc(); setInterval(loadAc, 60000);
+loadVersion();
 loadCfg(); load(); setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); loadAc(); } });
 </script>

@@ -73,3 +73,11 @@ test('turning off, and {auto:false} alone, do not touch the range', async () => 
   } finally { globalThis.fetch = realFetch; }
   assert.deepEqual(settings(DB), { tMin: 24, tMax: 26, auto: false });
 });
+
+test('/api/version reports the version and build, and needs the key', async () => {
+  const { env } = setup({ tMin: 24, tMax: 26 });
+  env.VERSION = '1.1.0'; env.BUILD = 'abc1234';
+  const get = key => worker.fetch(new Request('https://x.test/api/version', { headers: key ? { 'x-key': key } : {} }), env);
+  assert.equal((await get(null)).status, 401);
+  assert.deepEqual(await (await get('k')).json(), { version: '1.1.0', build: 'abc1234' });
+});
