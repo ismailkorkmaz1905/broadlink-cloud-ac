@@ -55,6 +55,7 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
 .ac button{border:1px solid var(--line);background:rgba(255,255,255,.1);color:var(--text);border-radius:14px;padding:12px;font:inherit}
 .rule{font-size:13px;color:var(--muted);margin:10px 0 0}
 .decision{margin-top:10px;padding:12px;border-radius:14px;background:rgba(0,0,0,.22);font-size:14px}
+.hr{display:flex;align-items:center;gap:10px}.langs{display:flex;gap:6px}.langs button{border:2px solid transparent;background:none;padding:0;border-radius:6px;line-height:0;opacity:.55;cursor:pointer}.langs button.on{opacity:1;border-color:rgba(255,255,255,.7)}.langs img{width:28px;height:19px;border-radius:3px;display:block}
 .foot{text-align:center;font-size:12px;color:var(--muted);margin:0}
 @media(prefers-reduced-motion:no-preference){.orbs i{animation:d 24s ease-in-out infinite alternate}.orbs i:nth-child(2){animation-duration:30s}.orbs i:nth-child(3){animation-duration:36s}@keyframes d{to{transform:translate(6vmax,4vmax)}}}
 </style>
@@ -62,80 +63,90 @@ button.save{margin-top:12px;width:100%;border:0;border-radius:14px;padding:12px;
 <body>
 <div class="orbs"><i></i><i></i><i></i></div>
 <main>
-<header><h1>ODANIN İKLİMİ</h1><span class="badge" id="badge">...</span></header>
+<header><h1 data-i18n="h1">ODANIN İKLİMİ</h1><div class="hr"><div class="langs" id="langs"><button type="button" data-lang="tr" aria-label="Türkçe" title="Türkçe"><img src="/flags/tr.svg" alt="TR"></button><button type="button" data-lang="en" aria-label="English" title="English"><img src="/flags/gb.svg" alt="EN"></button></div><span class="badge" id="badge">...</span></div></header>
 <section class="glass">
   <div class="now">
-    <div><div class="label">Sıcaklık</div><div class="temp"><span id="t">--</span><sup>°C</sup></div></div>
-    <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="8"/><circle id="arc" cx="50" cy="50" r="42" fill="none" stroke="url(#g)" stroke-width="8" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/><defs><linearGradient id="g"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs></svg><b id="h">--</b><small>NEM</small></div>
+    <div><div class="label" data-i18n="temp">Sıcaklık</div><div class="temp"><span id="t">--</span><sup>°C</sup></div></div>
+    <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="8"/><circle id="arc" cx="50" cy="50" r="42" fill="none" stroke="url(#g)" stroke-width="8" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/><defs><linearGradient id="g"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs></svg><b id="h">--</b><small data-i18n="hum">NEM</small></div>
   </div>
-  <div class="state" id="state">Ölçüm bekleniyor</div>
+  <div class="state" id="state" data-i18n="waiting">Ölçüm bekleniyor</div>
   <div class="meta" id="meta"></div>
 </section>
 <section class="glass">
-  <div class="tabs" id="tabs"><button data-r="6s" class="on">6 saat</button><button data-r="24s">24 saat</button><button data-r="7g">7 gün</button></div>
-  <div class="row"><span class="label">Sıcaklık (°C)</span><span class="stats" id="ts"></span></div>
+  <div class="tabs" id="tabs"><button data-r="6s" class="on" data-i18n="r6">6 saat</button><button data-r="24s" data-i18n="r24">24 saat</button><button data-r="7g" data-i18n="r7">7 gün</button></div>
+  <div class="row"><span class="label" data-i18n="tempChart">Sıcaklık (°C)</span><span class="stats" id="ts"></span></div>
   <svg class="chart" id="ct"></svg>
-  <div class="row" style="margin-top:14px"><span class="label">Nem (%)</span><span class="stats" id="hs"></span></div>
+  <div class="row" style="margin-top:14px"><span class="label" data-i18n="humChart">Nem (%)</span><span class="stats" id="hs"></span></div>
   <svg class="chart" id="ch"></svg>
-  <div class="tip" id="tip">Yeşil bant konfor aralığıdır. Grafiğe dokunarak değerleri gör.</div>
-  <div class="links"><a id="csv" href="#">CSV indir</a><a id="json" href="#">JSON indir</a></div>
+  <div class="tip" id="tip" data-i18n="tip">Yeşil bant konfor aralığıdır. Grafiğe dokunarak değerleri gör.</div>
+  <div class="links"><a id="csv" href="#" data-i18n="csv">CSV indir</a><a id="json" href="#" data-i18n="json">JSON indir</a></div>
 </section>
 <section class="glass">
-  <div class="label">Klima kararı</div>
+  <div class="label" data-i18n="decisionTitle">Klima kararı</div>
   <div class="decision" id="decision">...</div>
   <p class="rule" id="rule"></p>
-  <label class="auto"><span>Otomatik klima kontrolü<small>Kapalıyken klima hiç kendiliğinden çalışmaz.</small></span><input id="auto" type="checkbox"></label>
-  <div class="ac"><button id="acon">Soğutmayı aç</button><button id="acoff">Kapat</button></div>
+  <label class="auto"><span><span data-i18n="auto">Otomatik klima kontrolü</span><small data-i18n="autoHint">Kapalıyken klima hiç kendiliğinden çalışmaz.</small></span><input id="auto" type="checkbox"></label>
+  <div class="ac"><button id="acon" data-i18n="acon">Soğutmayı aç</button><button id="acoff" data-i18n="acoff">Kapat</button></div>
   <div class="cfg">
-    <label>Elle açarken hedef (°C)<input id="target" type="number" step="1" min="18" max="30" inputmode="numeric"></label>
-    <label>Elle açarken fan<select id="fan"><option value="auto">Otomatik</option><option value="high">Yüksek</option><option value="med">Orta</option><option value="low">Düşük</option><option value="quiet">Sessiz</option></select></label>
+    <label><span data-i18n="target">Elle açarken hedef (°C)</span><input id="target" type="number" step="1" min="18" max="30" inputmode="numeric"></label>
+    <label><span data-i18n="fan">Elle açarken fan</span><select id="fan"><option value="auto" data-i18n="f_auto">Otomatik</option><option value="high" data-i18n="f_high">Yüksek</option><option value="med" data-i18n="f_med">Orta</option><option value="low" data-i18n="f_low">Düşük</option><option value="quiet" data-i18n="f_quiet">Sessiz</option></select></label>
   </div>
-  <div class="meta" id="acstate">Durum bilinmiyor. Klima tek yönlü kızılötesiyle kumanda edilir; kumandadan yapılan değişiklikler görünmez.</div>
+  <div class="meta" id="acstate"></div>
 </section>
 <section class="glass">
-  <div class="label">Konfor aralığı</div>
+  <div class="label" data-i18n="comfort">Konfor aralığı</div>
   <div class="cfg">
-    <label>Sıcaklık en düşük (°C)<input id="tmin" type="number" step="0.5" inputmode="decimal"></label>
-    <label>Sıcaklık en yüksek (°C)<input id="tmax" type="number" step="0.5" inputmode="decimal"></label>
-    <label>Nem en düşük (%)<input id="hmin" type="number" step="1" inputmode="numeric"></label>
-    <label>Nem en yüksek (%)<input id="hmax" type="number" step="1" inputmode="numeric"></label>
+    <label><span data-i18n="tmin">Sıcaklık en düşük (°C)</span><input id="tmin" type="number" step="0.5" inputmode="decimal"></label>
+    <label><span data-i18n="tmax">Sıcaklık en yüksek (°C)</span><input id="tmax" type="number" step="0.5" inputmode="decimal"></label>
+    <label><span data-i18n="hmin">Nem en düşük (%)</span><input id="hmin" type="number" step="1" inputmode="numeric"></label>
+    <label><span data-i18n="hmax">Nem en yüksek (%)</span><input id="hmax" type="number" step="1" inputmode="numeric"></label>
   </div>
-  <button class="save" id="save">Kaydet</button>
+  <button class="save" id="save" data-i18n="save">Kaydet</button>
   <div class="meta" id="cfgmsg"></div>
 </section>
-<p class="foot">Veri BroadLink bulutundan dakikada bir okunur · Saatler Singapur saati</p>
+<p class="foot" data-i18n="foot">Veri BroadLink bulutundan dakikada bir okunur · Saatler Singapur saati</p>
 </main>
 <script type="module">
-import { plan, describe, setpoint, FAN_LABEL } from '/policy.js';
+import { plan, describe, setpoint, FAN_LABELS } from '/policy.js';
+import { I18N, LANGS } from '/i18n.js';
 const $ = id => document.getElementById(id);
 let range = '6s', cfg = { tMin: 23, tMax: 26, hMin: 40, hMax: 60, auto: false }, sample = null, pts = [];
-const clock = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Asia/Singapore', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-const hm = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit' });
-const dm = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Asia/Singapore', day: '2-digit', month: '2-digit' });
+const LOCALE = { tr: 'tr-TR', en: 'en-GB' };
+let lang = 'tr', clock, hm, dm, acState = null, acMsg = null, cfgMsg = null;
+const t = (k, ...a) => { const v = I18N[lang][k]; return typeof v === 'function' ? v(...a) : v; };
+const pct = n => (lang === 'tr' ? '%' + n : n + '%');
+const fanName = f => FAN_LABELS[lang][f] || f;
+function setLocale() {
+  const o = { timeZone: 'Asia/Singapore' };
+  clock = new Intl.DateTimeFormat(LOCALE[lang], { ...o, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  hm = new Intl.DateTimeFormat(LOCALE[lang], { ...o, hour: '2-digit', minute: '2-digit' });
+  dm = new Intl.DateTimeFormat(LOCALE[lang], { ...o, day: '2-digit', month: '2-digit' });
+}
+function pickLang() {
+  try { const s = localStorage.getItem('lang'); if (LANGS.includes(s)) return s; } catch { /* storage may be blocked */ }
+  return /^tr\b/i.test(navigator.language || '') ? 'tr' : 'en';
+}
 const NS = 'http://www.w3.org/2000/svg';
 
 function render() {
   const fresh = sample && Date.now() - sample.at < 180000;
-  $('badge').textContent = !sample ? 'VERİ YOK' : fresh ? 'GÜNCEL' : 'GÜNCEL DEĞİL';
+  $('badge').textContent = !sample ? t('noData') : fresh ? t('live') : t('stale');
   $('badge').className = 'badge ' + (!sample ? '' : fresh ? 'ok' : 'bad');
-  $('rule').textContent = describe(cfg);
-  if (!sample) { $('decision').textContent = 'Ölçüm yok, karar verilemez.'; return; }
+  $('rule').textContent = describe(cfg, lang);
+  if (!sample) { $('decision').textContent = t('noReading'); return; }
   $('t').textContent = sample.temperature.toFixed(1);
-  $('h').textContent = '%' + Math.round(sample.humidity);
+  $('h').textContent = pct(Math.round(sample.humidity));
   $('arc').style.strokeDashoffset = 264 * (1 - Math.min(100, sample.humidity) / 100);
   const parts = [];
-  if (sample.temperature < cfg.tMin) parts.push('serin'); else if (sample.temperature > cfg.tMax) parts.push('sıcak');
-  if (sample.humidity < cfg.hMin) parts.push('kuru'); else if (sample.humidity > cfg.hMax) parts.push('nemli');
-  $('state').textContent = parts.length ? 'Oda ' + parts.join(' ve ') + '.' : 'Konfor aralığında.';
-  $('meta').textContent = 'Son ölçüm ' + clock.format(sample.at) + (fresh ? '' : ' · veri eski');
+  if (sample.temperature < cfg.tMin) parts.push(t('cool')); else if (sample.temperature > cfg.tMax) parts.push(t('hot'));
+  if (sample.humidity < cfg.hMin) parts.push(t('dry')); else if (sample.humidity > cfg.hMax) parts.push(t('humid'));
+  $('state').textContent = parts.length ? t('roomIs', parts.join(t('and'))) : t('inBand');
+  $('meta').textContent = t('lastReading') + clock.format(sample.at) + (fresh ? '' : t('staleSuffix'));
   const p = plan(cfg, sample.temperature);
-  const t = sample.temperature.toFixed(1);
-  const text = p.action === 'cool'
-    ? `Şu an ${t}° → üst sınırın ${p.over.toFixed(1)}° üstünde. Karar: soğutma ${p.target}°, fan ${FAN_LABEL[p.fan]}.`
-    : p.action === 'off'
-      ? `Şu an ${t}° → alt sınırın altında. Karar: klimayı kapat.`
-      : `Şu an ${t}° → konfor aralığında. Karar: bekle, son durum korunur.`;
-  $('decision').textContent = text + (cfg.auto ? ' (Otomatik açık: bu karar uygulanır.)' : ' (Otomatik kapalı: yalnızca öneri.)');
+  const temp = sample.temperature.toFixed(1);
+  const text = p.action === 'cool' ? t('decCool', temp, p.over.toFixed(1), p.target, fanName(p.fan))
+    : p.action === 'off' ? t('decOff', temp) : t('decHold', temp);
+  $('decision').textContent = text + (cfg.auto ? t('autoOn') : t('autoOff'));
 }
 
 function nice(lo, hi, n) {
@@ -181,7 +192,7 @@ function chart(svg, statEl, key, color, unit, band) {
   svg.append(el('circle', { cx: X(last.at), cy: Y(last[key]), r: 3.5, fill: color }));
   svg.append(el('line', { id: 'm' + key, y1: T, y2: H - B, stroke: '#fff', 'stroke-opacity': .5, visibility: 'hidden' }));
   const avg = ys.reduce((a, b) => a + b, 0) / ys.length;
-  statEl.textContent = 'min ' + lo.toFixed(1) + ' · ort ' + avg.toFixed(1) + ' · maks ' + hi.toFixed(1) + unit;
+  const [a, b, c] = t('stat'); statEl.textContent = `${a} ${lo.toFixed(1)} · ${b} ${avg.toFixed(1)} · ${c} ${hi.toFixed(1)}${unit}`;
 }
 
 function tipAt(e) {
@@ -191,7 +202,7 @@ function tipAt(e) {
   const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * g.W;
   const at = g.x0 + Math.min(1, Math.max(0, (px - g.L) / (g.W - g.L - g.R))) * (g.x1 - g.x0);
   const p = pts.reduce((a, b) => Math.abs(b.at - at) < Math.abs(a.at - at) ? b : a);
-  $('tip').textContent = clock.format(p.at) + ' · ' + p.temperature.toFixed(1) + ' °C · %' + Math.round(p.humidity);
+  $('tip').textContent = clock.format(p.at) + ' · ' + p.temperature.toFixed(1) + ' °C · ' + pct(Math.round(p.humidity));
   for (const k of ['temperature', 'humidity']) {
     const m = document.getElementById('m' + k);
     if (m && geo[k]) { m.setAttribute('x1', geo[k].X(p.at)); m.setAttribute('x2', geo[k].X(p.at)); m.setAttribute('visibility', 'visible'); }
@@ -226,39 +237,47 @@ async function loadCfg() {
 async function saveCfg(next, msg) {
   try {
     await api('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) });
-    cfg = next; if (msg) $('cfgmsg').textContent = msg; render(); charts(); return true;
-  } catch { if (msg) $('cfgmsg').textContent = 'Kaydedilemedi.'; return false; }
+    cfg = next; if (msg) { cfgMsg = msg; $('cfgmsg').textContent = t(msg); } render(); charts(); return true;
+  } catch { if (msg) { cfgMsg = 'saveFail'; $('cfgmsg').textContent = t('saveFail'); } return false; }
 }
 
 $('save').onclick = () => {
   const next = { ...cfg, tMin: +$('tmin').value, tMax: +$('tmax').value, hMin: +$('hmin').value, hMax: +$('hmax').value };
   if (![next.tMin, next.tMax, next.hMin, next.hMax].every(Number.isFinite) || next.tMin >= next.tMax || next.hMin >= next.hMax) {
-    $('cfgmsg').textContent = 'Değerleri kontrol et: en düşük, en yüksekten küçük olmalı.'; return;
+    cfgMsg = 'cfgInvalid'; $('cfgmsg').textContent = t('cfgInvalid'); return;
   }
-  saveCfg(next, 'Kaydedildi.');
+  saveCfg(next, 'saved');
 };
 
 $('auto').onchange = async () => {
   const ok = await saveCfg({ ...cfg, auto: $('auto').checked });
-  if (!ok) { $('auto').checked = cfg.auto === true; $('acstate').textContent = 'Otomatik ayarı kaydedilemedi.'; }
+  if (!ok) { $('auto').checked = cfg.auto === true; setAcMsg('autoFail'); }
 };
+
+function renderAc() {
+  if (acMsg) { $('acstate').textContent = t(acMsg); return; }
+  const s = acState;
+  if (!s) { $('acstate').textContent = t('acUnknown'); return; }
+  const what = s.power === 'on' ? t('cmdCool', s.target, fanName(s.fan)) : t('cmdOff');
+  $('acstate').textContent = t('lastCmd') + what + ' · ' + hm.format(s.at) + (s.source === 'auto' ? t('srcAuto') : t('srcManual')) + (s.ok ? '' : t('cmdFailed'));
+}
+const setAcMsg = key => { acMsg = key; renderAc(); };
 
 async function loadAc() {
   try {
     const { state } = await api('/api/ac');
     if (!state) return;
-    const what = state.power === 'on' ? `soğutma ${state.target}°, fan ${FAN_LABEL[state.fan] || state.fan}` : 'kapat';
-    $('acstate').textContent = 'Son komut: ' + what + ' · ' + hm.format(state.at) + (state.source === 'auto' ? ' (otomatik)' : ' (elle)') + (state.ok ? '' : ' · GÖNDERİLEMEDİ');
+    acState = state; acMsg = null; renderAc();
   } catch { /* keep text */ }
 }
 
 async function ac(action) {
-  $('acstate').textContent = 'Gönderiliyor...';
+  setAcMsg('sending');
   const target = Math.round(+$('target').value);
-  if (action === 'cool' && !(target >= 18 && target <= 30)) { $('acstate').textContent = 'Hedef 18-30 arasında olmalı.'; return; }
+  if (action === 'cool' && !(target >= 18 && target <= 30)) { setAcMsg('targetRange'); return; }
   try {
     await api('/api/ac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target, fan: $('fan').value }) });
-  } catch { $('acstate').textContent = 'Komut gönderilemedi.'; return; }
+  } catch { setAcMsg('sendFail'); return; }
   loadAc();
 }
 $('acon').onclick = () => ac('cool');
@@ -272,6 +291,23 @@ $('tabs').onclick = e => {
 };
 for (const id of ['ct', 'ch']) { $(id).addEventListener('pointermove', tipAt); $(id).addEventListener('pointerdown', tipAt); }
 window.addEventListener('resize', charts);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll('#langs button').forEach(b => b.classList.toggle('on', b.dataset.lang === lang));
+  setLocale();
+  $('cfgmsg').textContent = cfgMsg ? t(cfgMsg) : '';
+  render(); charts(); renderAc();
+}
+$('langs').onclick = e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.lang === lang) return;
+  lang = b.dataset.lang;
+  try { localStorage.setItem('lang', lang); } catch { /* storage may be blocked */ }
+  applyLang();
+};
+lang = pickLang();
+applyLang();
 loadAc(); setInterval(loadAc, 60000);
 loadCfg(); load(); setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); loadAc(); } });
