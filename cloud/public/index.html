@@ -279,6 +279,7 @@ async function ac(action) {
     await api('/api/ac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target, fan: $('fan').value }) });
   } catch { setAcMsg('sendFail'); return; }
   loadAc();
+  if (action === 'cool') loadCfg(); // the server moves the comfort range to the new target
 }
 $('acon').onclick = () => ac('cool');
 $('acoff').onclick = () => ac('off');

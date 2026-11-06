@@ -50,3 +50,10 @@ test('automation starts and adjusts cooling on its own when nothing was set by h
 test('a failed hand command is retried by the automation', () => {
   assert.deepEqual(nextCommand(band, 26.0, st({ ok: 0 }), T0 + MIN_GAP + 1), { action: 'cool', target: 25, fan: 'low' });
 });
+
+import { bandFor } from '../cloud/public/policy.js';
+
+test('a hand-set target moves the comfort range to target -1/+1', () => {
+  assert.deepEqual(bandFor(25), { tMin: 24, tMax: 26 });
+  assert.deepEqual(bandFor(22), { tMin: 21, tMax: 23 });
+});

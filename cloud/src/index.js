@@ -1,5 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
-import { FANS, FAN_LABEL, nextCommand } from '../public/policy.js';
+import { FANS, FAN_LABEL, bandFor, nextCommand } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 const json = (body, status = 200) => Response.json(body, { status, headers });
@@ -40,11 +40,10 @@ async function sendAc(env, action, target, fan, source, temp) {
   return { ok: !!ok };
 }
 
-// Flips only profile.auto and keeps the rest of the saved settings.
-async function setAuto(env, auto) {
+// Merges a patch into the saved profile and keeps every other setting.
+async function patchProfile(env, patch) {
   const row = await env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first();
-  const cfg = row ? JSON.parse(row.settings) : {};
-  cfg.auto = auto;
+  const cfg = { ...(row ? JSON.parse(row.settings) : {}), ...patch };
   await env.DB.prepare('INSERT OR REPLACE INTO profile (id, settings, updated_at) VALUES (1, ?, ?)').bind(JSON.stringify(cfg), Date.now()).run();
 }
 
@@ -155,7 +154,7 @@ export default {
         if (auto === 'true' || auto === 'false') auto = auto === 'true';
         if (auto !== undefined && typeof auto !== 'boolean') return json({ error: 'invalid', field: 'auto' }, 400);
         if (auto !== undefined) {
-          await setAuto(env, auto);
+          await patchProfile(env, { auto });
           if (body.action === undefined) return json({ ok: true, auto });
         }
         const bad = !['off', 'cool'].includes(body?.action) ? `action=${JSON.stringify(body?.action)}`
@@ -163,6 +162,8 @@ export default {
           : body.action === 'cool' && !FANS.includes(body.fan) ? `fan=${JSON.stringify(body.fan)}` : null;
         if (bad) return json({ error: 'invalid', field: bad }, 400);
         const result = await sendAc(env, body.action, body.target, body.fan, 'manual');
+        // A hand-set target also moves the comfort range to target -1/+1; the range can still be edited afterwards.
+        if (result.ok && body.action === 'cool') await patchProfile(env, bandFor(body.target));
         return json(result, result.ok ? 200 : 502);
       }
     }

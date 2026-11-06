@@ -25,6 +25,9 @@ export function plan(cfg, temp) {
   return { action: 'hold', over };
 }
 
+// Comfort range that follows a hand-set target: one degree either side of it.
+export const bandFor = target => ({ tMin: target - 1, tMax: target + 1 });
+
 export const MIN_GAP = 10 * 60000;
 export const RESEND = 30 * 60000;
 
@@ -46,8 +49,8 @@ export function describe(cfg, lang = 'tr') {
   const t = setpoint(cfg);
   if (lang === 'en') {
     return `Above ${cfg.tMax}° the AC is set to ${t}° and cooling starts. Power (fan): below 1° over - low, 1-2° - medium, 2° and above - high. `
-      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. A target and fan you set by hand are kept until it switches off. At least 10 minutes between commands.`;
+      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. A target and fan you set by hand are kept until it switches off, and the comfort range moves to that target -1/+1 (you can still edit it afterwards). At least 10 minutes between commands.`;
   }
   return `${cfg.tMax}° üstünde klima ${t}°'ye ayarlanıp soğutma açılır. Güç (fan): aşım 1°'den azsa düşük, 1-2° orta, 2° ve üstü yüksek. `
-    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Elle verdiğin hedef ve fan, klima kapanana kadar korunur. Komutlar arasında en az 10 dakika beklenir.`;
+    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Elle verdiğin hedef ve fan klima kapanana kadar korunur; konfor aralığı da hedef -1/+1 olur (sonra elle değiştirebilirsin). Komutlar arasında en az 10 dakika beklenir.`;
 }
