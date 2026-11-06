@@ -1,0 +1,16 @@
+{
+  "name": "klima-bulut",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "wrangler deploy --config cloud/wrangler.toml"
+  },
+  "devDependencies": {
+    "wrangler": "^4.92.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
