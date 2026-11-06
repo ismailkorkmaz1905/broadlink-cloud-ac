@@ -23,3 +23,30 @@ test('setpoint stays inside the AC range', () => {
   assert.equal(setpoint({ tMin: 40 }), 30);
   assert.equal(setpoint({ tMin: 22.6 }), 23);
 });
+
+import { nextCommand, MIN_GAP, RESEND } from '../cloud/public/policy.js';
+
+const band = { tMin: 24.5, tMax: 25.5 };
+const T0 = 1_000_000_000;
+const st = (over = {}) => ({ power: 'on', target: 22, fan: 'high', at: T0, source: 'manual', ok: 1, ...over });
+
+test('a hand-set target and fan are not overridden while the room is still warm', () => {
+  assert.equal(nextCommand(band, 26.5, st(), T0 + MIN_GAP + 1), null);
+  assert.equal(nextCommand(band, 26.5, st(), T0 + RESEND + 1), null);
+});
+
+test('automation still switches a hand-started AC off once the room is cool', () => {
+  assert.deepEqual(nextCommand(band, 24.0, st(), T0 + MIN_GAP + 1), { action: 'off' });
+  assert.equal(nextCommand(band, 24.0, st(), T0 + 1000), null);
+});
+
+test('automation starts and adjusts cooling on its own when nothing was set by hand', () => {
+  assert.deepEqual(nextCommand(band, 26.0, null, T0), { action: 'cool', target: 25, fan: 'low' });
+  const auto = st({ source: 'auto', target: 25, fan: 'low' });
+  assert.deepEqual(nextCommand(band, 27.9, auto, T0 + MIN_GAP + 1), { action: 'cool', target: 25, fan: 'high' });
+  assert.equal(nextCommand(band, 26.0, auto, T0 + MIN_GAP + 1), null);
+});
+
+test('a failed hand command is retried by the automation', () => {
+  assert.deepEqual(nextCommand(band, 26.0, st({ ok: 0 }), T0 + MIN_GAP + 1), { action: 'cool', target: 25, fan: 'low' });
+});

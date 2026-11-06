@@ -25,12 +25,29 @@ export function plan(cfg, temp) {
   return { action: 'hold', over };
 }
 
+export const MIN_GAP = 10 * 60000;
+export const RESEND = 30 * 60000;
+
+// What the automation should send now, or null. `state` is the last AC command ({power, target, fan, at, source, ok}).
+export function nextCommand(cfg, temp, state, now = Date.now()) {
+  const age = state ? now - state.at : Infinity;
+  const p = plan(cfg, temp);
+  if (p.action === 'cool') {
+    // A target and fan the person chose by hand win until the room is cool enough to switch off.
+    if (state?.power === 'on' && state.source === 'manual' && state.ok) return null;
+    const changed = !state || state.power !== 'on' || state.target !== p.target || state.fan !== p.fan || !state.ok;
+    return (changed && age > MIN_GAP) || age > RESEND ? { action: 'cool', target: p.target, fan: p.fan } : null;
+  }
+  if (p.action === 'off' && state?.power === 'on' && age > MIN_GAP) return { action: 'off' };
+  return null;
+}
+
 export function describe(cfg, lang = 'tr') {
   const t = setpoint(cfg);
   if (lang === 'en') {
     return `Above ${cfg.tMax}° the AC is set to ${t}° and cooling starts. Power (fan): below 1° over - low, 1-2° - medium, 2° and above - high. `
-      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. At least 10 minutes between commands.`;
+      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. A target and fan you set by hand are kept until it switches off. At least 10 minutes between commands.`;
   }
   return `${cfg.tMax}° üstünde klima ${t}°'ye ayarlanıp soğutma açılır. Güç (fan): aşım 1°'den azsa düşük, 1-2° orta, 2° ve üstü yüksek. `
-    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Komutlar arasında en az 10 dakika beklenir.`;
+    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Elle verdiğin hedef ve fan, klima kapanana kadar korunur. Komutlar arasında en az 10 dakika beklenir.`;
 }

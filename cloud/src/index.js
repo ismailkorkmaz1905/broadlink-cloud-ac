@@ -1,5 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
-import { FANS, FAN_LABEL, plan } from '../public/policy.js';
+import { FANS, FAN_LABEL, nextCommand } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 const json = (body, status = 200) => Response.json(body, { status, headers });
@@ -15,9 +15,6 @@ async function equal(a, b) {
 }
 
 const cookieKey = request => /(?:^|; )k=([^;]+)/.exec(request.headers.get('Cookie') ?? '')?.[1] ?? null;
-
-const MIN_GAP = 10 * 60000;
-const RESEND = 30 * 60000;
 
 // Optional push via ntfy.sh. Does nothing unless the NTFY_TOPIC secret is set. Never throws.
 async function notify(env, title, message, tags) {
@@ -56,15 +53,9 @@ async function control(env, sample) {
   const row = await env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first();
   const cfg = row ? JSON.parse(row.settings) : {};
   if (cfg.auto !== true || !Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
-  const state = await env.DB.prepare('SELECT power, target, fan, at, ok FROM ac_state WHERE id = 1').first();
-  const age = state ? Date.now() - state.at : Infinity;
-  const p = plan(cfg, sample.temperature);
-  if (p.action === 'cool') {
-    const changed = !state || state.power !== 'on' || state.target !== p.target || state.fan !== p.fan || !state.ok;
-    if ((changed && age > MIN_GAP) || age > RESEND) await sendAc(env, 'cool', p.target, p.fan, 'auto', sample.temperature);
-  } else if (p.action === 'off' && state?.power === 'on' && age > MIN_GAP) {
-    await sendAc(env, 'off', null, null, 'auto', sample.temperature);
-  }
+  const state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
+  const cmd = nextCommand(cfg, sample.temperature, state);
+  if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, 'auto', sample.temperature);
 }
 
 async function poll(env) {
