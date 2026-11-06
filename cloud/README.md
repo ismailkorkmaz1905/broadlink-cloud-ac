@@ -49,7 +49,7 @@ Capture it once with an HTTPS proxy app on your phone while opening the AC/senso
 
 ## Automation
 
-Rules live in `public/policy.js` and are shown on the page. Above the upper bound the AC is set to the lower bound and cooling starts (fan scales with the overshoot); below the lower bound it is switched off; inside the band the last state is kept. A target and fan chosen by hand are kept until the automation switches the AC off. Choosing a target by hand (dashboard button or `POST /api/ac`) also moves the comfort range to that target -1/+1; edit the range afterwards if you want something else. Commands are spaced at least 10 minutes apart.
+Rules live in `public/policy.js` and are shown on the page. Above the upper bound the AC is set to the middle of the band and cooling starts (fan scales with the overshoot); below the lower bound it is switched off; inside the band the last state is kept. A target and fan chosen by hand are kept until the automation switches the AC off. Choosing a target by hand (dashboard button or `POST /api/ac`) also moves the comfort range to that target -1/+1; edit the range afterwards if you want something else. Commands are spaced at least 10 minutes apart.
 
 ## Push notifications (optional)
 

@@ -8,9 +8,10 @@ export const FAN_LABEL = FAN_LABELS.tr; // used for push notifications
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-// Cooling setpoint is the lower comfort bound, so the AC's own thermostat settles inside the band.
+// Cooling setpoint is the middle of the comfort band, which is the target you typed (the band is target -1/+1).
+// Pushing the AC to the lower bound made it pull down at full power and overshoot by about half a degree.
 export function setpoint(cfg) {
-  return clamp(Math.round(cfg.tMin), 18, 30);
+  return clamp(Math.round((cfg.tMin + cfg.tMax) / 2), 18, 30);
 }
 
 // How hard to cool depends on how far the room is above the upper bound.
@@ -48,9 +49,9 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
 export function describe(cfg, lang = 'tr') {
   const t = setpoint(cfg);
   if (lang === 'en') {
-    return `Above ${cfg.tMax}° the AC is set to ${t}° and cooling starts. Power (fan): below 1° over - low, 1-2° - medium, 2° and above - high. `
+    return `Above ${cfg.tMax}° the AC is set to ${t}° (the middle of the range) and cooling starts. Power (fan): below 1° over - low, 1-2° - medium, 2° and above - high. `
       + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. A target and fan you set by hand are kept until it switches off, and the comfort range moves to that target -1/+1 (you can still edit it afterwards). At least 10 minutes between commands.`;
   }
-  return `${cfg.tMax}° üstünde klima ${t}°'ye ayarlanıp soğutma açılır. Güç (fan): aşım 1°'den azsa düşük, 1-2° orta, 2° ve üstü yüksek. `
+  return `${cfg.tMax}° üstünde klima ${t}°'ye (aralığın ortası) ayarlanıp soğutma açılır. Güç (fan): aşım 1°'den azsa düşük, 1-2° orta, 2° ve üstü yüksek. `
     + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Elle verdiğin hedef ve fan klima kapanana kadar korunur; konfor aralığı da hedef -1/+1 olur (sonra elle değiştirebilirsin). Komutlar arasında en az 10 dakika beklenir.`;
 }

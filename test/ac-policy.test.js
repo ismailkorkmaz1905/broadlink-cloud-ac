@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fanFor, plan, setpoint } from '../cloud/public/policy.js';
+import { fanFor, plan, setpoint, bandFor } from '../cloud/public/policy.js';
 
 const cfg = { tMin: 23, tMax: 26 };
 
 test('cools above the upper bound with fan strength by overshoot', () => {
-  assert.deepEqual(plan(cfg, 26.4), { action: 'cool', target: 23, fan: 'low', over: 26.4 - 26 });
+  assert.deepEqual(plan(cfg, 26.4), { action: 'cool', target: 25, fan: 'low', over: 26.4 - 26 });
   assert.equal(plan(cfg, 27.2).fan, 'med');
   assert.equal(plan(cfg, 28.5).fan, 'high');
   assert.equal(fanFor(1), 'med');
@@ -19,9 +19,10 @@ test('turns off below the lower bound and holds inside the band', () => {
 });
 
 test('setpoint stays inside the AC range', () => {
-  assert.equal(setpoint({ tMin: 12 }), 18);
-  assert.equal(setpoint({ tMin: 40 }), 30);
-  assert.equal(setpoint({ tMin: 22.6 }), 23);
+  assert.equal(setpoint({ tMin: 12, tMax: 14 }), 18);
+  assert.equal(setpoint({ tMin: 40, tMax: 42 }), 30);
+  assert.equal(setpoint({ tMin: 22.6, tMax: 24.6 }), 24);
+  assert.equal(setpoint(bandFor(25)), 25); // the target you type is what the AC is told
 });
 
 import { nextCommand, MIN_GAP, RESEND } from '../cloud/public/policy.js';
@@ -51,7 +52,6 @@ test('a failed hand command is retried by the automation', () => {
   assert.deepEqual(nextCommand(band, 26.0, st({ ok: 0 }), T0 + MIN_GAP + 1), { action: 'cool', target: 25, fan: 'low' });
 });
 
-import { bandFor } from '../cloud/public/policy.js';
 
 test('a hand-set target moves the comfort range to target -1/+1', () => {
   assert.deepEqual(bandFor(25), { tMin: 24, tMax: 26 });
