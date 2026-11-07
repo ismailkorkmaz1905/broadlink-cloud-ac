@@ -34,15 +34,19 @@ async function sendAc(env, action, target, fan, source, temp) {
   const name = action === 'off' ? 'off' : `cool_${target}_${fan}`;
   const row = await env.DB.prepare('SELECT code FROM ir_codes WHERE name = ?').bind(name).first();
   if (!row) return { ok: false, error: 'no_code' };
+  const prev = await env.DB.prepare('SELECT power, ok FROM ac_state WHERE id = 1').first();
   let ok = 1;
   try { await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code); } catch { ok = 0; }
-  await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', action === 'off' ? null : target, action === 'off' ? null : fan, Date.now(), source, ok).run();
+  // An off state keeps the last setpoint (if given), so the automation can restart from what it learned.
+  await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', target ?? null, action === 'off' ? null : fan, Date.now(), source, ok).run();
   await log(env, action, action === 'off' ? null : target, action === 'off' ? null : fan, source, ok, temp);
+  // Push only for failures and on/off changes; the 20-minute setpoint nudges stay quiet.
+  const wasOn = prev?.power === 'on' && !!prev.ok;
   if (source === 'auto') {
     const t = Number.isFinite(temp) ? `Oda ${temp.toFixed(1)}°. ` : '';
     if (!ok) await notify(env, 'Klima komutu gitmedi', `${t}Otomatik komut gönderilemedi.`, ['warning']);
     else if (action === 'off') await notify(env, 'Klima kapatıldı', `${t}Alt sınırın altına inildi, otomatik kapatıldı.`, ['snowflake']);
-    else await notify(env, 'Klima açıldı', `${t}Hedef ${target}°, fan ${FAN_LABEL[fan]}.`, ['snowflake']);
+    else if (!wasOn) await notify(env, 'Klima açıldı', `${t}Hedef ${target}°, fan ${FAN_LABEL[fan]}.`, ['snowflake']);
   }
   return { ok: !!ok };
 }
