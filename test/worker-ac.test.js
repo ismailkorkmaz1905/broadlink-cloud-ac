@@ -49,6 +49,11 @@ test('a hand-set target moves the comfort range to target -1/+1 and keeps other 
   assert.deepEqual(settings(DB), { tMin: 24, tMax: 26, hMin: 40, hMax: 70, auto: true });
   const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
   assert.deepEqual({ ...state }, { power: 'on', target: 25, fan: 'auto', source: 'manual', ok: 1 });
+  const logged = DB.db.prepare('SELECT action, target, fan, source, ok FROM ac_log ORDER BY rowid').all().map(r => ({ ...r }));
+  assert.deepEqual(logged, [
+    { action: 'auto_on', target: null, fan: null, source: 'manual', ok: 1 },
+    { action: 'cool', target: 25, fan: 'auto', source: 'manual', ok: 1 },
+  ]);
 });
 
 test('the range is left alone when the command could not be sent', async () => {

@@ -9,7 +9,7 @@ Cloudflare Worker + D1. A cron trigger runs every minute: reads temperature/humi
 | `src/index.js`, `public/`, `schema.sql`, `wrangler.toml` | Secret `BROADLINK_SESSION` |
 | `seed/ir_codes.sql` (replace with your AC's codes) | Secret `VIEW_KEY` (dashboard key) |
 | `../lib/broadlink-app-cloud.js`, tests | Secret `NTFY_TOPIC` (optional push) |
-|  | D1 contents: samples, profile, AC state |
+|  | D1 contents: samples, profile, AC state, command log (`ac_log`) |
 
 ## Setup
 
@@ -49,7 +49,7 @@ Capture it once with an HTTPS proxy app on your phone while opening the AC/senso
 
 ## Automation
 
-Rules live in `public/policy.js` and are shown on the page. Above the upper bound the AC is set to the middle of the band and cooling starts (fan scales with the overshoot); below the lower bound it is switched off; inside the band the last state is kept. A target and fan chosen by hand are kept until the automation switches the AC off. Choosing a target by hand (dashboard button or `POST /api/ac`) also moves the comfort range to that target -1/+1; edit the range afterwards if you want something else. Commands are spaced at least 10 minutes apart.
+Rules live in `public/policy.js` and are shown on the page. Above the upper bound the AC is set to the middle of the band and cooling starts (fan scales with the overshoot); below the lower bound it is switched off; inside the band the last state is kept. Cooling starts at the band's middle; if the room is still above the band 15 minutes after the last command, the setpoint steps down 1 C (not below the lower bound - 1), because the AC's own thermostat can read cooler than the room sensor. A target and fan chosen by hand are kept (re-sent every 30 minutes) until the automation switches the AC off. Choosing a target by hand (dashboard button or `POST /api/ac`) also moves the comfort range to that target -1/+1; edit the range afterwards if you want something else. Commands are spaced at least 10 minutes apart.
 
 ## Push notifications (optional)
 

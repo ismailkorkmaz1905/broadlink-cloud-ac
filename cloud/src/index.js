@@ -24,6 +24,12 @@ async function notify(env, title, message, tags) {
   } catch { /* notifications are best effort */ }
 }
 
+// Every command and automation switch goes to ac_log, so a bad night can be read back afterwards.
+async function log(env, action, target, fan, source, ok, temp) {
+  if (!Number.isFinite(temp)) temp = (await env.DB.prepare('SELECT temperature FROM samples ORDER BY at DESC LIMIT 1').first())?.temperature ?? null;
+  await env.DB.prepare('INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), action, target ?? null, fan ?? null, source, ok, temp).run();
+}
+
 async function sendAc(env, action, target, fan, source, temp) {
   const name = action === 'off' ? 'off' : `cool_${target}_${fan}`;
   const row = await env.DB.prepare('SELECT code FROM ir_codes WHERE name = ?').bind(name).first();
@@ -31,6 +37,7 @@ async function sendAc(env, action, target, fan, source, temp) {
   let ok = 1;
   try { await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code); } catch { ok = 0; }
   await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', action === 'off' ? null : target, action === 'off' ? null : fan, Date.now(), source, ok).run();
+  await log(env, action, action === 'off' ? null : target, action === 'off' ? null : fan, source, ok, temp);
   if (source === 'auto') {
     const t = Number.isFinite(temp) ? `Oda ${temp.toFixed(1)}°. ` : '';
     if (!ok) await notify(env, 'Klima komutu gitmedi', `${t}Otomatik komut gönderilemedi.`, ['warning']);
@@ -54,7 +61,7 @@ async function control(env, sample) {
   if (cfg.auto !== true || !Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
   const state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
   const cmd = nextCommand(cfg, sample.temperature, state);
-  if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, 'auto', sample.temperature);
+  if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature);
 }
 
 async function poll(env) {
@@ -156,6 +163,7 @@ export default {
         if (auto !== undefined && typeof auto !== 'boolean') return json({ error: 'invalid', field: 'auto' }, 400);
         if (auto !== undefined) {
           await patchProfile(env, { auto });
+          await log(env, auto ? 'auto_on' : 'auto_off', null, null, 'manual', 1);
           if (body.action === undefined) return json({ ok: true, auto });
         }
         const bad = !['off', 'cool'].includes(body?.action) ? `action=${JSON.stringify(body?.action)}`

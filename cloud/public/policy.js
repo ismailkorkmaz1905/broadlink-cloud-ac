@@ -31,16 +31,23 @@ export const bandFor = target => ({ tMin: target - 1, tMax: target + 1 });
 
 export const MIN_GAP = 10 * 60000;
 export const RESEND = 30 * 60000;
+export const STEP_AFTER = 15 * 60000;
 
 // What the automation should send now, or null. `state` is the last AC command ({power, target, fan, at, source, ok}).
+// Cooling starts gently at the band's middle. If the room is still above the band 15 minutes after the last command,
+// the setpoint steps down one degree (not below tMin - 1): the AC's own thermostat can read cooler than the room sensor.
 export function nextCommand(cfg, temp, state, now = Date.now()) {
   const age = state ? now - state.at : Infinity;
   const p = plan(cfg, temp);
+  const on = state?.power === 'on' && !!state.ok;
   if (p.action === 'cool') {
-    // A target and fan the person chose by hand win until the room is cool enough to switch off.
-    if (state?.power === 'on' && state.source === 'manual' && state.ok) return null;
-    const changed = !state || state.power !== 'on' || state.target !== p.target || state.fan !== p.fan || !state.ok;
-    return (changed && age > MIN_GAP) || age > RESEND ? { action: 'cool', target: p.target, fan: p.fan } : null;
+    if (!on) return age > MIN_GAP ? { action: 'cool', target: p.target, fan: p.fan } : null;
+    // A hand-set target and fan are kept, but re-sent every 30 minutes in case the AC missed the command or stopped.
+    if (state.source === 'manual') return age > RESEND ? { action: 'cool', target: state.target, fan: state.fan, source: 'manual' } : null;
+    const floor = Math.max(18, Math.round(cfg.tMin) - 1);
+    if (age > STEP_AFTER && state.target > floor) return { action: 'cool', target: state.target - 1, fan: p.fan };
+    if (state.fan !== p.fan && age > MIN_GAP) return { action: 'cool', target: state.target, fan: p.fan };
+    return age > RESEND ? { action: 'cool', target: state.target, fan: p.fan } : null;
   }
   if (p.action === 'off' && state?.power === 'on' && age > MIN_GAP) return { action: 'off' };
   return null;
@@ -50,8 +57,8 @@ export function describe(cfg, lang = 'tr') {
   const t = setpoint(cfg);
   if (lang === 'en') {
     return `Above ${cfg.tMax}° the AC is set to ${t}° (the middle of the range) and cooling starts. Power (fan): below 1° over - low, 1-2° - medium, 2° and above - high. `
-      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. A target and fan you set by hand are kept until it switches off, and the comfort range moves to that target -1/+1 (you can still edit it afterwards). At least 10 minutes between commands.`;
+      + `It switches off below ${cfg.tMin}°. Inside the band the last state is kept. If the room is still above the range 15 minutes later, the setpoint steps down 1° (not below the lower bound -1). A target and fan you set by hand are kept (re-sent every 30 minutes) until it switches off, and the comfort range moves to that target -1/+1 (you can still edit it afterwards). At least 10 minutes between commands.`;
   }
   return `${cfg.tMax}° üstünde klima ${t}°'ye (aralığın ortası) ayarlanıp soğutma açılır. Güç (fan): aşım 1°'den azsa düşük, 1-2° orta, 2° ve üstü yüksek. `
-    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. Elle verdiğin hedef ve fan klima kapanana kadar korunur; konfor aralığı da hedef -1/+1 olur (sonra elle değiştirebilirsin). Komutlar arasında en az 10 dakika beklenir.`;
+    + `${cfg.tMin}° altına inince kapanır. Aralıktayken son durum korunur. 15 dakika sonra oda hâlâ aralığın üstündeyse hedef 1° düşürülür (alt sınırın 1° altına kadar). Elle verdiğin hedef ve fan klima kapanana kadar korunur (30 dakikada bir yeniden gönderilir); konfor aralığı da hedef -1/+1 olur (sonra elle değiştirebilirsin). Komutlar arasında en az 10 dakika beklenir.`;
 }

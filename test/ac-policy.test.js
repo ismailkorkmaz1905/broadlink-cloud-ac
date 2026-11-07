@@ -33,7 +33,7 @@ const st = (over = {}) => ({ power: 'on', target: 22, fan: 'high', at: T0, sourc
 
 test('a hand-set target and fan are not overridden while the room is still warm', () => {
   assert.equal(nextCommand(band, 26.5, st(), T0 + MIN_GAP + 1), null);
-  assert.equal(nextCommand(band, 26.5, st(), T0 + RESEND + 1), null);
+  assert.deepEqual(nextCommand(band, 26.5, st(), T0 + RESEND + 1), { action: 'cool', target: 22, fan: 'high', source: 'manual' });
 });
 
 test('automation still switches a hand-started AC off once the room is cool', () => {
@@ -56,4 +56,19 @@ test('a failed hand command is retried by the automation', () => {
 test('a hand-set target moves the comfort range to target -1/+1', () => {
   assert.deepEqual(bandFor(25), { tMin: 24, tMax: 26 });
   assert.deepEqual(bandFor(22), { tMin: 21, tMax: 23 });
+});
+
+import { STEP_AFTER } from '../cloud/public/policy.js';
+
+test('automation steps the setpoint down while the room stays above the band, but not below tMin - 1', () => {
+  const b = { tMin: 24, tMax: 26 }; // middle 25, floor 23
+  const auto = (target, fan = 'low') => st({ source: 'auto', target, fan });
+  assert.equal(nextCommand(b, 26.4, auto(25), T0 + STEP_AFTER - 1), null);
+  assert.deepEqual(nextCommand(b, 26.4, auto(25), T0 + STEP_AFTER + 1), { action: 'cool', target: 24, fan: 'low' });
+  assert.deepEqual(nextCommand(b, 26.4, auto(24), T0 + STEP_AFTER + 1), { action: 'cool', target: 23, fan: 'low' });
+  assert.equal(nextCommand(b, 26.4, auto(23), T0 + STEP_AFTER + 1), null);
+  assert.deepEqual(nextCommand(b, 26.4, auto(23), T0 + RESEND + 1), { action: 'cool', target: 23, fan: 'low' });
+  // inside the band the stepped setpoint is held, below it the AC is switched off
+  assert.equal(nextCommand(b, 25.0, auto(23), T0 + RESEND + 1), null);
+  assert.deepEqual(nextCommand(b, 23.9, auto(23), T0 + MIN_GAP + 1), { action: 'off' });
 });
