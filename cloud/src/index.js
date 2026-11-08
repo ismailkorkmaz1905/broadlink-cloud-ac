@@ -81,8 +81,10 @@ async function poll(env) {
     try { await control(env, s); } catch { /* sensor logging must not fail because of control */ }
     return { saved: true };
   } catch {
-    await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 0)').bind(now).run();
-    if (prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', 'BroadLink oturumu dolmuş olabilir. Otomasyon çalışmaz; BROADLINK_SESSION yenilenmeli.', ['rotating_light']);
+    // One missed minute is normal for the BroadLink cloud; only a read that stays down for 4+ minutes counts as an outage.
+    const down = !last || now - last.at > 4 * 60000;
+    await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, ?)').bind(now, down ? 0 : (prev?.ok ?? 1)).run();
+    if (down && prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', 'BroadLink okuması 4 dakikadır başarısız. Oturum dolmuş olabilir; devam ederse BROADLINK_SESSION yenilenmeli.', ['rotating_light']);
     return { saved: false, error: 'cloud_unavailable' };
   }
 }

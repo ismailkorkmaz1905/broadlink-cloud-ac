@@ -86,3 +86,53 @@ test('/api/version reports the version and build, and needs the key', async () =
   assert.equal((await get(null)).status, 401);
   assert.deepEqual(await (await get('k')).json(), { version: '1.1.0', build: 'abc1234' });
 });
+
+// --- sensor outage alerts ---
+const SENSOR = Buffer.from([0x24, 0, 0, 0, 25, 50, 60, 0]).toString('base64');
+function net(mode) {
+  const pushes = [];
+  const fn = async (url, init) => {
+    if (String(url).includes('ntfy.sh')) { pushes.push(JSON.parse(init.body).title); return new Response('{}'); }
+    if (mode.fail) return new Response('down', { status: 500 });
+    return Response.json({ event: { payload: { data: SENSOR } } });
+  };
+  return { fn, pushes };
+}
+const poll = env => worker.fetch(new Request('https://x.test/api/poll', { method: 'POST', headers: { 'x-key': 'k' } }), env).then(r => r.json());
+async function withNet(mode, f) {
+  const real = globalThis.fetch, n = net(mode);
+  globalThis.fetch = n.fn;
+  try { return await f(n); } finally { globalThis.fetch = real; }
+}
+const addSample = (DB, ageMs) => DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, 25, 60)').run(Date.now() - ageMs);
+const statusOk = DB => DB.db.prepare('SELECT ok FROM status WHERE id = 1').get()?.ok;
+
+test('one failed read does not raise an outage alert', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26 });
+  env.NTFY_TOPIC = 't';
+  addSample(DB, 120000); // last good reading 2 minutes ago
+  const mode = { fail: true };
+  await withNet(mode, async n => {
+    assert.equal((await poll(env)).error, 'cloud_unavailable');
+    assert.deepEqual(n.pushes, []);
+    assert.equal(statusOk(DB), 1);
+  });
+});
+
+test('an outage of 4+ minutes alerts once, and recovery is announced once', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26 });
+  env.NTFY_TOPIC = 't';
+  addSample(DB, 6 * 60000);
+  const mode = { fail: true };
+  await withNet(mode, async n => {
+    await poll(env);
+    assert.deepEqual(n.pushes, ['Sensör okunamıyor']);
+    assert.equal(statusOk(DB), 0);
+    await poll(env);
+    assert.deepEqual(n.pushes, ['Sensör okunamıyor']); // no repeat
+    mode.fail = false;
+    assert.equal((await poll(env)).saved, true);
+    assert.deepEqual(n.pushes, ['Sensör okunamıyor', 'Sensör geri geldi']);
+    assert.equal(statusOk(DB), 1);
+  });
+});
