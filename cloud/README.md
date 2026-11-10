@@ -42,7 +42,8 @@ Capture it once with an HTTPS proxy app on your phone while opening the AC/senso
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/sensor?range=6s\|24s\|7g` | latest sample and history; add `&format=csv\|json` to download |
+| `GET /api/sensor?range=6s\|24s\|7g` | history and the AC command log for the range; add `&format=csv\|json` to download |
+| `GET /api/state` | latest reading, profile, AC state, last-hour swing and version in one call (what the dashboard polls) |
 | `GET /api/version` | version and build shown in the dashboard footer |
 | `GET/PUT /api/profile` | comfort band and automation switch |
 | `GET /api/ac` / `POST /api/ac` | last AC command / send `{"action":"off"}` or `{"action":"cool","target":24,"fan":"auto"}`; optional `"auto": true\|false` switches the automation |

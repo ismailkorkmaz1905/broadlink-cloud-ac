@@ -30,7 +30,8 @@ async function log(env, action, target, fan, source, ok, temp) {
   await env.DB.prepare('INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), action, target ?? null, fan ?? null, source, ok, temp).run();
 }
 
-async function sendAc(env, action, target, fan, source, temp) {
+// `source` is the mode stored on ac_state ('manual' = started by a person); `by` is who sent this command, for the log.
+async function sendAc(env, action, target, fan, source, temp, by = source) {
   const name = action === 'off' ? 'off' : `cool_${target}_${fan}`;
   const row = await env.DB.prepare('SELECT code FROM ir_codes WHERE name = ?').bind(name).first();
   if (!row) return { ok: false, error: 'no_code' };
@@ -39,7 +40,7 @@ async function sendAc(env, action, target, fan, source, temp) {
   try { await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code); } catch { ok = 0; }
   // An off state keeps the last setpoint (if given), so the automation can restart from what it learned.
   await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', target ?? null, action === 'off' ? null : fan, Date.now(), source, ok).run();
-  await log(env, action, action === 'off' ? null : target, action === 'off' ? null : fan, source, ok, temp);
+  await log(env, action, action === 'off' ? null : target, action === 'off' ? null : fan, by, ok, temp);
   // Push only for failures and on/off changes; the 20-minute setpoint nudges stay quiet.
   const wasOn = prev?.power === 'on' && !!prev.ok;
   if (source === 'auto') {
@@ -65,7 +66,7 @@ async function control(env, sample) {
   if (cfg.auto !== true || !Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
   const state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
   const cmd = nextCommand(cfg, sample.temperature, state);
-  if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature);
+  if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature, 'auto');
 }
 
 async function poll(env) {
@@ -108,8 +109,26 @@ async function sensor(url, env) {
   }
   const bucket = range === '7g' ? 1800000 : 300000;
   const samples = await env.DB.prepare('SELECT CAST(at / ? AS INTEGER) * ? AS at, AVG(temperature) AS temperature, AVG(humidity) AS humidity FROM samples WHERE at >= ? GROUP BY CAST(at / ? AS INTEGER) ORDER BY at ASC LIMIT 3000').bind(bucket, bucket, since, bucket).all();
-  const hourly = await env.DB.prepare('SELECT CAST(at / 3600000 AS INTEGER) * 3600000 AS at, MIN(temperature) AS min_temperature, MAX(temperature) AS max_temperature, MIN(humidity) AS min_humidity, MAX(humidity) AS max_humidity FROM samples WHERE at >= ? GROUP BY CAST(at / 3600000 AS INTEGER) ORDER BY at ASC LIMIT 200').bind(since).all();
-  return json({ sample, samples: samples.results, hourly: hourly.results });
+  // AC log for the same range, plus the last entry before it so the chart knows the state at its left edge.
+  const log = await env.DB.prepare('SELECT at, action, target, fan, source, ok, temperature FROM ac_log WHERE at >= COALESCE((SELECT MAX(at) FROM ac_log WHERE at < ?), 0) ORDER BY at ASC LIMIT 1000').bind(since).all();
+  return json({ sample, samples: samples.results, log: log.results, since });
+}
+
+// Everything the page refreshes each minute, in one request.
+async function state(env) {
+  const now = Date.now();
+  const [sample, prof, ac, hour, before] = await Promise.all([
+    env.DB.prepare('SELECT temperature, humidity, at FROM samples ORDER BY at DESC LIMIT 1').first(),
+    env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first(),
+    env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first(),
+    env.DB.prepare('SELECT MIN(temperature) AS min, MAX(temperature) AS max, COUNT(*) AS n FROM samples WHERE at >= ?').bind(now - 3600000).first(),
+    env.DB.prepare('SELECT temperature FROM samples WHERE at <= ? AND at >= ? ORDER BY at DESC LIMIT 1').bind(now - 15 * 60000, now - 25 * 60000).first(),
+  ]);
+  return json({
+    sample, profile: prof ? JSON.parse(prof.settings) : null, state: ac,
+    hour: hour?.n ? { min: hour.min, max: hour.max } : null, before: before?.temperature ?? null,
+    version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local',
+  });
 }
 
 async function profile(request, env, keyed) {
@@ -153,6 +172,7 @@ export default {
     if (!url.pathname.startsWith('/api/')) return withCookie(await env.ASSETS.fetch(request));
     if (!authorized) return json({ error: 'unauthorized' }, 401);
     if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
+    if (url.pathname === '/api/state') return state(env);
     if (url.pathname === '/api/sensor') return sensor(url, env);
     if (url.pathname === '/api/profile') return profile(request, env, keyed);
     if (url.pathname === '/api/ac') {

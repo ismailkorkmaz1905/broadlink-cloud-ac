@@ -136,3 +136,39 @@ test('an outage of 4+ minutes alerts once, and recovery is announced once', asyn
     assert.equal(statusOk(DB), 1);
   });
 });
+
+test('/api/state returns the reading, profile, AC state, last-hour swing and version in one call', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26, auto: true });
+  env.VERSION = '2.0.0'; env.BUILD = 'abc1234';
+  const now = Date.now();
+  const add = (ago, t) => DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, ?, 60)').run(now - ago, t);
+  add(90 * 60000, 29); add(20 * 60000, 25.2); add(10 * 60000, 25.6); add(30000, 25.4);
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 26, 'auto', ?, 'manual', 1)").run(now);
+  const d = await (await worker.fetch(new Request('https://x.test/api/state', { headers: { 'x-key': 'k' } }), env)).json();
+  assert.equal(d.sample.temperature, 25.4);
+  assert.deepEqual(d.profile, { tMin: 24, tMax: 26, auto: true });
+  assert.equal(d.state.target, 26);
+  assert.deepEqual(d.hour, { min: 25.2, max: 25.6 }); // the 29 from 90 minutes ago is outside the hour
+  assert.equal(d.before, 25.2);
+  assert.equal(d.version, '2.0.0');
+});
+
+test('history carries the AC log for the range plus the entry before it; automation re-sends are logged as auto', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26, auto: true });
+  const now = Date.now();
+  const logRow = (ago, action, target) => DB.db.prepare("INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, ?, ?, 'auto', 'manual', 1, 25)").run(now - ago, action, target);
+  logRow(9 * 3600000, 'cool', 24); logRow(8 * 3600000, 'cool', 25); logRow(3600000, 'cool', 26);
+  DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, 25.5, 60)').run(now - 60000);
+  const d = await (await worker.fetch(new Request('https://x.test/api/sensor?range=6s', { headers: { 'x-key': 'k' } }), env)).json();
+  assert.deepEqual(d.log.map(l => l.target), [25, 26]); // 24 is older than the entry just before the range
+  assert.equal(d.samples.length, 1);
+  assert.equal('hourly' in d, false);
+
+  // a hand-started AC that the automation re-sends: state stays manual, the log says auto
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 25, 'auto', ?, 'manual', 1)").run(now - 31 * 60000);
+  DB.db.prepare('DELETE FROM samples').run();
+  await withNet({ fail: false }, async () => { assert.equal((await poll(env)).saved, true); });
+  assert.equal(DB.db.prepare('SELECT source FROM ac_state').get().source, 'manual');
+  const last = DB.db.prepare('SELECT action, target, source FROM ac_log ORDER BY at DESC LIMIT 1').get();
+  assert.deepEqual({ ...last }, { action: 'cool', target: 25, source: 'auto' });
+});
