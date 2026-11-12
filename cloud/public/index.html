@@ -77,21 +77,25 @@ header h1{margin:0;font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;
 /* stat */
 .stat-label{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:var(--fs-md);font-weight:600;letter-spacing:-.01em}
 .stat-label .cap{font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0;text-align:right}
-.stat{display:flex;align-items:center;gap:12px;margin:2px 0 4px}
-.hero{flex:none;min-width:96px;font-size:var(--fs-hero);line-height:44px;font-weight:420;letter-spacing:-.045em;font-variant-numeric:tabular-nums;white-space:nowrap;transition:color .6s}
+.stat-state{font-size:var(--fs-sm);font-weight:500}
+.hero{font-size:var(--fs-hero);line-height:44px;font-weight:420;letter-spacing:-.045em;font-variant-numeric:tabular-nums;white-space:nowrap;transition:color .6s}
 .hero small{margin-left:1px;font-size:18px;font-weight:430;letter-spacing:0}
-.stat-foot{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.stat-foot b{font-weight:500;color:var(--fg)}
-.stat-state{font-size:var(--fs-sm);font-weight:500;margin-bottom:6px}
 
-/* meter: track, status fill, tick gaps, pace mark */
-.meter{position:relative;flex:1}
-.track{position:relative;height:10px;border-radius:5px;background:var(--track);overflow:hidden}
-.track i{position:absolute;left:0;top:0;bottom:0;border-radius:inherit;transition:width .8s cubic-bezier(.22,1,.36,1),background .6s}
-.track i.ok{background:var(--ok)}.track i.warn{background:var(--warn)}.track i.crit{background:var(--crit)}
-.track u{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--card);opacity:.85;z-index:1}
-.pace{position:absolute;top:-3px;width:2px;height:16px;margin-left:-1px;border-radius:1px;background:var(--crit);transition:left .6s}
-
+/* room: dial + key/values */
+.room{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:center;margin-top:4px}
+.dial{position:relative}
+.dial svg{width:100%;height:auto;overflow:visible}
+.dial text{fill:var(--muted);font:500 16px var(--mono)}
+#dTrack{stroke:var(--track)}
+#dBand{stroke:var(--ok);opacity:.5}
+#dTarget{stroke:var(--fg)}
+#needle{transform:rotate(135deg);transform-origin:150px 150px;transition:transform 1s cubic-bezier(.22,1,.36,1)}
+#needle circle{fill:var(--card);stroke:var(--state,var(--ok));stroke-width:7;transition:stroke .6s}
+.dialv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:12%;pointer-events:none}
+.dialv .hero{min-width:0;font-size:34px;line-height:38px}
+.dialv .hero small{font-size:15px}
+.dialv .stat-state{margin:2px 0 0;font-size:11.5px;text-align:center;white-space:nowrap}
+.kvs .kv .v{font-size:14px}
 /* key / value */
 .kv{display:flex;align-items:baseline;gap:8px;line-height:18px;white-space:nowrap}
 .kv+.kv{margin-top:7px}
@@ -190,17 +194,25 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
   <div class="card">
     <div class="row">
       <div class="stat-label"><span data-i18n="roomLbl">Oda</span><span class="cap" id="meta"></span></div>
-      <div class="stat">
-        <div class="hero" id="hero">--<small>°C</small></div>
-        <div class="meter"><div class="track" id="track"><i id="fill"></i><u id="u1"></u><u id="u2"></u></div><span class="pace" id="pace"></span></div>
+      <div class="room">
+        <div class="dial">
+          <svg viewBox="0 0 300 250" aria-hidden="true">
+            <path id="dTrack" fill="none" stroke-width="22" stroke-linecap="round"/>
+            <path id="dBand" fill="none" stroke-width="22" stroke-linecap="round"/>
+            <line id="dTarget" stroke-width="4" stroke-linecap="round"/>
+            <text id="dMin" text-anchor="middle"></text><text id="dMax" text-anchor="middle"></text>
+            <g id="needle"><circle cx="268" cy="150" r="14"/></g>
+          </svg>
+          <div class="dialv"><div class="hero" id="hero">--<small>°C</small></div><div class="stat-state" id="state" data-i18n="waiting">Ölçüm bekleniyor</div></div>
+        </div>
+        <div class="kvs">
+          <div class="kv"><span class="k" data-i18n="pHum">Nem</span><span class="v" id="h">--</span></div>
+          <div class="kv"><span class="k" data-i18n="pTrend">Eğilim · 15 dk</span><span class="v" id="trend">--</span></div>
+          <div class="kv"><span class="k" data-i18n="pSwing">Oynama · 1 sa</span><span class="v" id="swing">--</span></div>
+          <div class="kv"><span class="k" data-i18n="targetK">Hedef</span><span class="v" id="ftarget">--</span></div>
+          <div class="kv"><span class="k" data-i18n="rangeLbl">Aralık</span><span class="v" id="frange">--</span></div>
+        </div>
       </div>
-      <div class="stat-state" id="state" data-i18n="waiting">Ölçüm bekleniyor</div>
-      <div class="stat-foot"><span><span data-i18n="targetK">Hedef</span> <b id="ftarget">--</b></span><span><span data-i18n="rangeLbl">Aralık</span> <b id="frange">--</b></span></div>
-    </div>
-    <div class="row">
-      <div class="kv"><span class="k" data-i18n="pHum">Nem</span><span class="v" id="h">--</span></div>
-      <div class="kv"><span class="k" data-i18n="pTrend">Eğilim · 15 dk</span><span class="v" id="trend">--</span></div>
-      <div class="kv"><span class="k" data-i18n="pSwing">Oynama · 1 sa</span><span class="v" id="swing">--</span></div>
     </div>
     <div class="row">
       <div class="kv"><span class="k" data-i18n="stateK">Durum</span><span class="v t" id="acline">...</span></div>
@@ -287,20 +299,34 @@ const when = at => (dm.format(at) === dm.format(Date.now()) ? hm.format(at) : cl
 const num = v => String(+(+v).toFixed(1));
 
 // ---- room ----
+const CX = 150, CY = 150, RAD = 116, A0 = 135, SWEEP = 270;
+const polar = (a, r = RAD) => [CX + r * Math.cos(a * Math.PI / 180), CY + r * Math.sin(a * Math.PI / 180)];
+function arc(a, b) {
+  const [x0, y0] = polar(a), [x1, y1] = polar(b);
+  return `M${x0.toFixed(1)},${y0.toFixed(1)}A${RAD},${RAD} 0 ${b - a > 180 ? 1 : 0} 1 ${x1.toFixed(1)},${y1.toFixed(1)}`;
+}
 function renderRoom() {
   const fresh = sample && Date.now() - sample.at < 180000;
   $('live').textContent = !sample ? t('noData') : fresh ? t('live') : t('stale');
   $('live').className = 'pill' + (!sample ? ' off' : fresh ? '' : ' crit');
-  const lo = cfg.tMin - 2, hi = cfg.tMax + 2, pc = v => Math.min(100, Math.max(0, (v - lo) / (hi - lo) * 100));
-  $('u1').style.left = pc(cfg.tMin) + '%'; $('u2').style.left = pc(cfg.tMax) + '%';
-  $('pace').style.left = pc(roomTarget(cfg)) + '%';
+  const lo = cfg.tMin - 2, hi = cfg.tMax + 2;
+  const ang = v => A0 + SWEEP * Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+  $('dTrack').setAttribute('d', arc(A0, A0 + SWEEP));
+  $('dBand').setAttribute('d', arc(ang(cfg.tMin), ang(cfg.tMax)));
+  const ta = ang(roomTarget(cfg)), [tx0, ty0] = polar(ta, RAD - 13), [tx1, ty1] = polar(ta, RAD + 13);
+  for (const [k, v] of [['x1', tx0], ['y1', ty0], ['x2', tx1], ['y2', ty1]]) $('dTarget').setAttribute(k, v.toFixed(1));
+  for (const [id, v] of [['dMin', cfg.tMin], ['dMax', cfg.tMax]]) {
+    const [x, y] = polar(ang(v), RAD + 32);
+    $(id).setAttribute('x', x.toFixed(1)); $(id).setAttribute('y', (y + 5).toFixed(1)); $(id).textContent = num(v) + '°';
+  }
   $('ftarget').textContent = num(roomTarget(cfg)) + '°';
   $('frange').textContent = `${num(cfg.tMin)}-${num(cfg.tMax)}°`;
   if (!sample) { $('state').textContent = t('waiting'); return; }
   const T = sample.temperature, lv = level(T, cfg.tMin, cfg.tMax);
   $('hero').innerHTML = `${T.toFixed(1)}<small>°C</small>`;
   $('hero').className = 'hero' + (lv === 'ok' ? '' : ' ' + lv);
-  $('fill').style.width = pc(T) + '%'; $('fill').className = lv;
+  $('needle').style.transform = `rotate(${ang(T)}deg)`;
+  document.documentElement.style.setProperty('--state', `var(--${lv})`);
   const parts = [];
   if (T < cfg.tMin) parts.push(t('cool')); else if (T > cfg.tMax) parts.push(t('hot'));
   if (sample.humidity < cfg.hMin) parts.push(t('dry')); else if (sample.humidity > cfg.hMax) parts.push(t('humid'));
