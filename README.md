@@ -3,7 +3,7 @@
 Reads a BroadLink RM4 Mini + HTS2 temperature/humidity sensor through the BroadLink app cloud, stores it on Cloudflare (Worker + D1), serves a small bilingual (Turkish/English) dashboard, and can optionally drive an IR air conditioner to keep the room inside a comfort band. No always-on computer needed.
 
 <p align="center"><img src="docs/screenshot.png" alt="Dashboard with dummy data" width="320"></p>
-<p align="center"><sub>The dashboard (Turkish and English) with dummy data: a thermostat dial with the comfort band, trend and last-hour swing, AC controls, history with a strip showing the AC setting, and an activity log.</sub></p>
+<p align="center"><sub>The dashboard with dummy data (Turkish and English, light and dark): dial with the comfort band, trend and last-hour swing, AC controls, comfort range, history with a strip showing the AC setting, and an activity log. Card order and theme are set from the settings button.</sub></p>
 
 - `cloud/` - Worker, dashboard (Turkish/English), D1 schema, IR code seed
 - `lib/broadlink-app-cloud.js` - client for the BroadLink app cloud (sensor read, IR send)
