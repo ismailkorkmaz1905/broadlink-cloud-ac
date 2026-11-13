@@ -36,6 +36,8 @@ test('fails on upstream errors and out-of-range values', async () => {
   await assert.rejects(readCloudSensor(session(), async () => ({ ok: false })));
   const bad = Buffer.from('240000006400' + '0000', 'hex').toString('base64');
   await assert.rejects(readCloudSensor(session(), async () => ({ ok: true, json: async () => ({ event: { payload: { data: bad } } }) })));
+  const empty = Buffer.from('2400000000000000', 'hex').toString('base64');
+  await assert.rejects(readCloudSensor(session(), async () => ({ ok: true, json: async () => ({ event: { payload: { data: empty } } }) })), /no reading/);
 });
 
 test('allows only the license query on the session URL', () => {
