@@ -172,3 +172,13 @@ test('history carries the AC log for the range plus the entry before it; automat
   const last = DB.db.prepare('SELECT action, target, source FROM ac_log ORDER BY at DESC LIMIT 1').get();
   assert.deepEqual({ ...last }, { action: 'cool', target: 25, source: 'auto' });
 });
+
+test('stored 0 °C / 0 % rows are dropped so the last real reading shows again', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26 });
+  addSample(DB, 10 * 60000);
+  const zero = ago => DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, 0, 0)').run(Date.now() - ago);
+  zero(5 * 60000); zero(10000);
+  await withNet({ fail: true }, async () => { assert.equal((await poll(env)).error, 'cloud_unavailable'); });
+  const rows = DB.db.prepare('SELECT temperature FROM samples').all();
+  assert.deepEqual(rows.map(r => r.temperature), [25]);
+});

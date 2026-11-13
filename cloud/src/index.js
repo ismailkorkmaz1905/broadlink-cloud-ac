@@ -71,7 +71,13 @@ async function control(env, sample) {
 
 async function poll(env) {
   const now = Date.now();
-  const last = await env.DB.prepare('SELECT at FROM samples ORDER BY at DESC LIMIT 1').first();
+  const latest = () => env.DB.prepare('SELECT at, temperature, humidity FROM samples ORDER BY at DESC LIMIT 1').first();
+  let last = await latest();
+  // Older versions stored the RM4's "no reading" reply as 0 °C / 0 %. Drop those rows so the page falls back to the last real reading.
+  if (last && last.temperature === 0 && last.humidity === 0) {
+    await env.DB.prepare('DELETE FROM samples WHERE temperature = 0 AND humidity = 0').run();
+    last = await latest();
+  }
   if (last && now - last.at < 50000) return { saved: false };
   const prev = await env.DB.prepare('SELECT ok FROM status WHERE id = 1').first();
   try {
