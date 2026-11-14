@@ -46,6 +46,7 @@ Capture it once with an HTTPS proxy app on your phone while opening the AC/senso
 | `GET /api/state` | latest reading, profile, AC state, last-hour swing and version in one call (what the dashboard polls) |
 | `GET /api/version` | version and build shown in the dashboard footer |
 | `GET/PUT /api/profile` | comfort band and automation switch |
+| `GET /api/diag` | recent sensor gaps and failed reads with the raw RM4 reply; `?probe=1` also reads the sensor 3 times live without saving |
 | `GET /api/ac` / `POST /api/ac` | last AC command / send `{"action":"off"}` or `{"action":"cool","target":24,"fan":"auto"}`; optional `"auto": true\|false` switches the automation |
 
 ## Automation
@@ -55,3 +56,26 @@ Rules live in `public/policy.js` and are shown on the page. The room target is t
 ## Push notifications (optional)
 
 Install the ntfy app, subscribe to a long random topic, then `npx wrangler secret put NTFY_TOPIC`. You get a push when the automation switches the AC, when a command fails, and when the sensor goes down or comes back. Without `NTFY_TOPIC` nothing is sent.
+
+## Sensor diagnostics
+
+Every failed read goes to the `sensor_errors` table (time, reason, the RM4's raw reply as hex, detail) and to the worker log (`npx wrangler tail`); rows older than 30 days are dropped. A run of failed reads is one `sensor_gaps` row: `started`, `ended` (empty while it lasts), `reads`, `zero_reads` (how many were 0 °C / 0 %) and the first `reason`. The worker creates both tables itself. The recovery push says how long the gap lasted.
+
+| Reason | Meaning |
+| --- | --- |
+| `zero` | the RM4 answered `24 00 00 00 00 00 00 00` (0 °C / 0 %): the HTS2 gives no value |
+| `no_data` | the cloud answered without device data (RM4 may be offline); `detail` holds the start of the reply |
+| `http` / `network` | the BroadLink cloud failed or did not answer within 15 s |
+| `bad_reply` / `range` | unexpected reply or out-of-range value; see `raw` |
+| `session` | `BROADLINK_SESSION` is invalid |
+
+There is no retry or reconnect: the cron sends one request a minute and waits for the next minute on failure. The worker never talks to the RM4 directly, so there is nothing to reconnect; the BroadLink cloud reaches the device over its own link.
+
+### Frozen RM4 or sensor?
+
+While a gap is open:
+
+1. Call `/api/diag?probe=1`. Three `zero` reads mean the RM4 answers and the HTS2 side gives no value; `no_data` / `network` mean the RM4 does not reach the cloud.
+2. Send an IR command from the dashboard (if the AC is on, resend the same setting). If the AC reacts, the RM4 is not frozen.
+3. Unplug and replug the HTS2 cable, probe again a minute later. If it recovers, it was the cable or sensor.
+4. Otherwise cut the RM4's power for 10 s. If the next read closes the gap, the RM4 was frozen; `sensor_gaps.ended` lines up with the power cut.

@@ -26,7 +26,7 @@ test('reads a fresh sample and refreshes timestamps', async () => {
   let sent;
   const fetchImpl = async (url, init) => { sent = { url, init }; return { ok: true, json: async () => ({ event: { payload: { data: reply } } }) }; };
   const sample = await readCloudSensor(session(), fetchImpl, 1_700_000_000_000);
-  assert.deepEqual(sample, { temperature: 24.87, humidity: 73.9, at: 1_700_000_000_000 });
+  assert.deepEqual(sample, { temperature: 24.87, humidity: 73.9, at: 1_700_000_000_000, raw: '240000001857495a0500' });
   assert.equal(sent.init.headers.timestamp, '1700000000');
   assert.equal('Host' in sent.init.headers, false);
   assert.equal(JSON.parse(sent.init.body).directive.header.timstamp, '1700000000');
@@ -38,6 +38,16 @@ test('fails on upstream errors and out-of-range values', async () => {
   await assert.rejects(readCloudSensor(session(), async () => ({ ok: true, json: async () => ({ event: { payload: { data: bad } } }) })));
   const empty = Buffer.from('2400000000000000', 'hex').toString('base64');
   await assert.rejects(readCloudSensor(session(), async () => ({ ok: true, json: async () => ({ event: { payload: { data: empty } } }) })), /no reading/);
+});
+
+test('failed reads say why, and carry the raw RM4 reply when there was one', async () => {
+  const reason = async (fetchImpl) => { try { await readCloudSensor(session(), fetchImpl); } catch (e) { return { reason: e.reason, raw: e.raw, detail: e.detail }; } };
+  const answer = (hex) => async () => ({ ok: true, json: async () => ({ event: { payload: { data: Buffer.from(hex, 'hex').toString('base64') } } }) });
+  assert.deepEqual(await reason(answer('2400000000000000')), { reason: 'zero', raw: '2400000000000000', detail: undefined });
+  assert.equal((await reason(answer('2600000000000000'))).reason, 'bad_reply');
+  assert.deepEqual(await reason(async () => ({ ok: false, status: 503 })), { reason: 'http', raw: undefined, detail: 'HTTP 503' });
+  assert.deepEqual(await reason(async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); }), { reason: 'network', raw: undefined, detail: 'TimeoutError' });
+  assert.deepEqual(await reason(async () => ({ ok: true, json: async () => ({ status: -4000, msg: 'device offline' }) })), { reason: 'no_data', raw: undefined, detail: '{"status":-4000,"msg":"device offline"}' });
 });
 
 test('allows only the license query on the session URL', () => {

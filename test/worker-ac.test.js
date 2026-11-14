@@ -89,14 +89,15 @@ test('/api/version reports the version and build, and needs the key', async () =
 
 // --- sensor outage alerts ---
 const SENSOR = Buffer.from([0x24, 0, 0, 0, 25, 50, 60, 0]).toString('base64');
+const ZERO = Buffer.from([0x24, 0, 0, 0, 0, 0, 0, 0]).toString('base64');
 function net(mode) {
-  const pushes = [];
+  const pushes = [], messages = [];
   const fn = async (url, init) => {
-    if (String(url).includes('ntfy.sh')) { pushes.push(JSON.parse(init.body).title); return new Response('{}'); }
+    if (String(url).includes('ntfy.sh')) { pushes.push(JSON.parse(init.body).title); messages.push(JSON.parse(init.body).message); return new Response('{}'); }
     if (mode.fail) return new Response('down', { status: 500 });
-    return Response.json({ event: { payload: { data: SENSOR } } });
+    return Response.json({ event: { payload: { data: mode.zero ? ZERO : SENSOR } } });
   };
-  return { fn, pushes };
+  return { fn, pushes, messages };
 }
 const poll = env => worker.fetch(new Request('https://x.test/api/poll', { method: 'POST', headers: { 'x-key': 'k' } }), env).then(r => r.json());
 async function withNet(mode, f) {
@@ -181,4 +182,43 @@ test('stored 0 °C / 0 % rows are dropped so the last real reading shows again',
   await withNet({ fail: true }, async () => { assert.equal((await poll(env)).error, 'cloud_unavailable'); });
   const rows = DB.db.prepare('SELECT temperature FROM samples').all();
   assert.deepEqual(rows.map(r => r.temperature), [25]);
+});
+
+test('failed reads are logged with the raw reply, and a run of them is one gap with start, end and count', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26 });
+  env.NTFY_TOPIC = 't';
+  addSample(DB, 6 * 60000);
+  const mode = { zero: true };
+  await withNet(mode, async n => {
+    assert.equal((await poll(env)).error, 'cloud_unavailable');
+    assert.match(n.messages[0], /RM4 cevap veriyor ama sensör 0 °C/);
+    mode.zero = false; mode.fail = true;
+    await poll(env);
+    const errors = DB.db.prepare('SELECT reason, raw, detail FROM sensor_errors ORDER BY rowid').all().map(r => ({ ...r }));
+    assert.deepEqual(errors, [{ reason: 'zero', raw: '2400000000000000', detail: null }, { reason: 'http', raw: null, detail: 'HTTP 500' }]);
+    const open = DB.db.prepare('SELECT ended, reads, zero_reads, reason FROM sensor_gaps').get();
+    assert.deepEqual({ ...open }, { ended: null, reads: 2, zero_reads: 1, reason: 'zero' });
+    mode.fail = false;
+    assert.equal((await poll(env)).saved, true);
+    assert.match(n.messages.at(-1), /0 dk sürdü, 2 başarısız okuma \(1 tanesi 0 °C \/ %0\)/);
+  });
+  const gap = DB.db.prepare('SELECT started, ended FROM sensor_gaps').get();
+  assert.ok(gap.ended >= gap.started);
+
+  const d = await (await worker.fetch(new Request('https://x.test/api/diag', { headers: { 'x-key': 'k' } }), env)).json();
+  assert.equal(d.gaps.length, 1);
+  assert.equal(d.gaps[0].open, false);
+  assert.equal(d.errors.length, 2);
+  assert.equal('probe' in d, false);
+});
+
+test('/api/diag?probe=1 reads the sensor live without saving, and needs the key', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26 });
+  const get = key => worker.fetch(new Request('https://x.test/api/diag?probe=1', { headers: key ? { 'x-key': key } : {} }), env);
+  assert.equal((await get(null)).status, 401);
+  const d = await withNet({ zero: true }, async () => (await get('k')).json());
+  assert.equal(d.probe.length, 3);
+  assert.deepEqual(d.probe.map(p => [p.ok, p.reason, p.raw]), Array(3).fill([false, 'zero', '2400000000000000']));
+  assert.equal(DB.db.prepare('SELECT COUNT(*) AS n FROM samples').get().n, 0);
+  assert.equal(DB.db.prepare('SELECT COUNT(*) AS n FROM sensor_errors').get().n, 0);
 });

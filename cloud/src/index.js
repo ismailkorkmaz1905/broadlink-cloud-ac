@@ -69,8 +69,42 @@ async function control(env, sample) {
   if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature, 'auto');
 }
 
+// Sensor diagnostics. The tables are created here because schema changes can't be run from CI; schema.sql has the same statements.
+const DIAG_SCHEMA = [
+  'CREATE TABLE IF NOT EXISTS sensor_errors (at INTEGER NOT NULL, reason TEXT NOT NULL, raw TEXT, detail TEXT)',
+  'CREATE INDEX IF NOT EXISTS sensor_errors_at ON sensor_errors (at)',
+  'CREATE TABLE IF NOT EXISTS sensor_gaps (started INTEGER PRIMARY KEY, ended INTEGER, reads INTEGER NOT NULL, zero_reads INTEGER NOT NULL, reason TEXT NOT NULL)',
+];
+let diagReady = false;
+async function diagTables(env) {
+  if (diagReady) return;
+  for (const sql of DIAG_SCHEMA) await env.DB.prepare(sql).run();
+  diagReady = true;
+}
+
+// Every failed read goes to sensor_errors (with the RM4's raw reply when there was one); a run of failed reads is one sensor_gaps row.
+async function logReadError(env, now, e) {
+  const reason = e?.reason ?? 'unknown';
+  console.warn(`sensor read failed: ${reason}${e?.raw ? ` raw=${e.raw}` : ''}${e?.detail ? ` ${e.detail}` : ''}`);
+  await env.DB.prepare('INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, ?, ?, ?)').bind(now, reason, e?.raw ?? null, e?.detail ?? null).run();
+  const zero = reason === 'zero' ? 1 : 0;
+  const gap = await env.DB.prepare('SELECT started FROM sensor_gaps WHERE ended IS NULL').first();
+  if (gap) return env.DB.prepare('UPDATE sensor_gaps SET reads = reads + 1, zero_reads = zero_reads + ? WHERE started = ?').bind(zero, gap.started).run();
+  await env.DB.prepare('INSERT INTO sensor_gaps (started, ended, reads, zero_reads, reason) VALUES (?, NULL, 1, ?, ?)').bind(now, zero, reason).run();
+  await env.DB.prepare('DELETE FROM sensor_errors WHERE at < ?').bind(now - 30 * 86400000).run();
+}
+
+// Closes the open gap, if any, and returns it with its length.
+async function closeGap(env, now) {
+  const gap = await env.DB.prepare('SELECT started, reads, zero_reads FROM sensor_gaps WHERE ended IS NULL').first();
+  if (!gap) return null;
+  await env.DB.prepare('UPDATE sensor_gaps SET ended = ? WHERE started = ?').bind(now, gap.started).run();
+  return { ...gap, minutes: Math.round((now - gap.started) / 60000) };
+}
+
 async function poll(env) {
   const now = Date.now();
+  try { await diagTables(env); } catch { /* diagnostics must not stop the reading */ }
   const latest = () => env.DB.prepare('SELECT at, temperature, humidity FROM samples ORDER BY at DESC LIMIT 1').first();
   let last = await latest();
   // Older versions stored the RM4's "no reading" reply as 0 °C / 0 %. Drop those rows so the page falls back to the last real reading.
@@ -84,16 +118,51 @@ async function poll(env) {
     const s = await readCloudSensor(JSON.parse(env.BROADLINK_SESSION));
     await env.DB.prepare('INSERT OR IGNORE INTO samples (at, temperature, humidity) VALUES (?, ?, ?)').bind(s.at, s.temperature, s.humidity).run();
     await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 1)').bind(now).run();
-    if (prev?.ok === 0) await notify(env, 'Sensör geri geldi', 'BroadLink bulutundan okuma yeniden çalışıyor.', ['white_check_mark']);
+    let gap = null;
+    try { gap = await closeGap(env, now); } catch { /* diagnostics only */ }
+    const took = gap ? ` ${gap.minutes} dk sürdü, ${gap.reads} başarısız okuma (${gap.zero_reads} tanesi 0 °C / %0).` : '';
+    if (prev?.ok === 0) await notify(env, 'Sensör geri geldi', `BroadLink bulutundan okuma yeniden çalışıyor.${took}`, ['white_check_mark']);
     try { await control(env, s); } catch { /* sensor logging must not fail because of control */ }
     return { saved: true };
-  } catch {
+  } catch (e) {
+    try { await logReadError(env, now, e); } catch { /* diagnostics only */ }
     // One missed minute is normal for the BroadLink cloud; only a read that stays down for 4+ minutes counts as an outage.
     const down = !last || now - last.at > 4 * 60000;
     await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, ?)').bind(now, down ? 0 : (prev?.ok ?? 1)).run();
-    if (down && prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', 'BroadLink okuması 4 dakikadır başarısız. Oturum dolmuş olabilir; devam ederse BROADLINK_SESSION yenilenmeli.', ['rotating_light']);
+    const why = e?.reason === 'zero'
+      ? 'RM4 cevap veriyor ama sensör 0 °C / %0 döndürüyor (HTS2 kablosu veya donmuş RM4).'
+      : 'Oturum dolmuş olabilir; devam ederse BROADLINK_SESSION yenilenmeli.';
+    if (down && prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', `BroadLink okuması 4 dakikadır başarısız. ${why}`, ['rotating_light']);
     return { saved: false, error: 'cloud_unavailable' };
   }
+}
+
+// GET /api/diag: recent gaps and failed reads. With ?probe=1 it also reads the sensor 3 times, 2 s apart, without saving,
+// to see live whether the RM4 answers and what it sends.
+async function diag(url, env) {
+  await diagTables(env);
+  const now = Date.now();
+  const [gaps, errors] = await Promise.all([
+    env.DB.prepare('SELECT started, ended, reads, zero_reads, reason FROM sensor_gaps ORDER BY started DESC LIMIT 30').all(),
+    env.DB.prepare('SELECT at, reason, raw, detail FROM sensor_errors ORDER BY at DESC LIMIT 100').all(),
+  ]);
+  const out = {
+    gaps: gaps.results.map(g => ({ ...g, open: g.ended === null, seconds: Math.round(((g.ended ?? now) - g.started) / 1000) })),
+    errors: errors.results,
+  };
+  if (url.searchParams.get('probe') === '1') {
+    out.probe = [];
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise(r => setTimeout(r, 2000));
+      try {
+        const s = await readCloudSensor(JSON.parse(env.BROADLINK_SESSION));
+        out.probe.push({ at: s.at, ok: true, temperature: s.temperature, humidity: s.humidity, raw: s.raw });
+      } catch (e) {
+        out.probe.push({ at: Date.now(), ok: false, reason: e?.reason ?? 'unknown', raw: e?.raw ?? null, detail: e?.detail ?? null });
+      }
+    }
+  }
+  return json(out);
 }
 
 async function sensor(url, env) {
@@ -180,6 +249,7 @@ export default {
     if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
     if (url.pathname === '/api/state') return state(env);
     if (url.pathname === '/api/sensor') return sensor(url, env);
+    if (url.pathname === '/api/diag') return diag(url, env);
     if (url.pathname === '/api/profile') return profile(request, env, keyed);
     if (url.pathname === '/api/ac') {
       if (request.method === 'GET') return json({ state: await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first() });
