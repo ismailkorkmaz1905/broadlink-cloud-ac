@@ -102,6 +102,21 @@ async function closeGap(env, now) {
   return { ...gap, minutes: Math.round((now - gap.started) / 60000) };
 }
 
+// A stuck HTS2 keeps sending a plausible, slightly moving value (2026-11-14: ~27° for hours while the room was cold).
+// If the AC has been cooling for 45+ minutes, the room is still 2°+ above target and it has not cooled since then, push once per AC run.
+const STUCK_AFTER = 45 * 60000;
+async function checkStuck(env, sample) {
+  const state = await env.DB.prepare('SELECT power, target, ok FROM ac_state WHERE id = 1').first();
+  if (state?.power !== 'on' || !state.ok || !Number.isFinite(state.target) || sample.temperature < state.target + 2) return;
+  const run = await env.DB.prepare("SELECT MIN(at) AS since FROM ac_log WHERE action = 'cool' AND ok = 1 AND at > COALESCE((SELECT MAX(at) FROM ac_log WHERE action = 'off'), 0)").first();
+  if (!run?.since || sample.at - run.since < STUCK_AFTER) return;
+  const then = await env.DB.prepare('SELECT temperature FROM samples WHERE at <= ? ORDER BY at DESC LIMIT 1').bind(sample.at - STUCK_AFTER).first();
+  if (!then || sample.temperature < then.temperature - 0.3) return;
+  if (await env.DB.prepare("SELECT 1 FROM sensor_errors WHERE reason = 'suspect' AND at >= ?").bind(run.since).first()) return;
+  await env.DB.prepare("INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, 'suspect', ?, ?)").bind(sample.at, sample.raw ?? null, `ac ${state.target}°, room ${then.temperature} -> ${sample.temperature} in 45 min`).run();
+  await notify(env, 'Sensör şüpheli', `Klima 45 dakikadır ${state.target}° soğutuyor ama oda hâlâ ${sample.temperature.toFixed(1)}° ve düşmüyor. HTS2 takılmış olabilir (kablosunu çıkarıp tak) ya da klima komutu almamış.`, ['warning']);
+}
+
 async function poll(env) {
   const now = Date.now();
   try { await diagTables(env); } catch { /* diagnostics must not stop the reading */ }
@@ -123,6 +138,7 @@ async function poll(env) {
     const took = gap ? ` ${gap.minutes} dk sürdü, ${gap.reads} başarısız okuma (${gap.zero_reads} tanesi 0 °C / %0).` : '';
     if (prev?.ok === 0) await notify(env, 'Sensör geri geldi', `BroadLink bulutundan okuma yeniden çalışıyor.${took}`, ['white_check_mark']);
     try { await control(env, s); } catch { /* sensor logging must not fail because of control */ }
+    try { await checkStuck(env, s); } catch { /* diagnostics only */ }
     return { saved: true };
   } catch (e) {
     try { await logReadError(env, now, e); } catch { /* diagnostics only */ }

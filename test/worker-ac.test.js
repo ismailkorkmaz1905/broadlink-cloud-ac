@@ -222,3 +222,32 @@ test('/api/diag?probe=1 reads the sensor live without saving, and needs the key'
   assert.equal(DB.db.prepare('SELECT COUNT(*) AS n FROM samples').get().n, 0);
   assert.equal(DB.db.prepare('SELECT COUNT(*) AS n FROM sensor_errors').get().n, 0);
 });
+
+test('a room that does not cool after 45 minutes of AC raises one "suspect sensor" push', async () => {
+  const { env, DB } = setup({ tMin: 17, tMax: 19 });
+  env.NTFY_TOPIC = 't';
+  const now = Date.now();
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 18, 'high', ?, 'manual', 1)").run(now - 50 * 60000);
+  DB.db.prepare("INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, 'cool', 18, 'high', 'manual', 1, 25)").run(now - 50 * 60000);
+  DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, 25.2, 60)').run(now - 48 * 60000);
+  await withNet({}, async n => {
+    assert.equal((await poll(env)).saved, true); // SENSOR reads 25.5
+    assert.deepEqual(n.pushes, ['Sensör şüpheli']);
+    DB.db.prepare('DELETE FROM samples WHERE at > ?').run(now - 60000);
+    await poll(env);
+    assert.deepEqual(n.pushes, ['Sensör şüpheli']); // once per AC run
+  });
+  assert.equal(DB.db.prepare("SELECT COUNT(*) AS n FROM sensor_errors WHERE reason = 'suspect'").get().n, 1);
+});
+
+test('no "suspect sensor" push when the room is cooling or the AC only just started', async () => {
+  for (const [startedAgo, earlier] of [[50, 27], [20, 25.2]]) {
+    const { env, DB } = setup({ tMin: 17, tMax: 19 });
+    env.NTFY_TOPIC = 't';
+    const now = Date.now();
+    DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 18, 'high', ?, 'manual', 1)").run(now - startedAgo * 60000);
+    DB.db.prepare("INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, 'cool', 18, 'high', 'manual', 1, 25)").run(now - startedAgo * 60000);
+    DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, ?, 60)').run(now - 48 * 60000, earlier);
+    await withNet({}, async n => { await poll(env); assert.deepEqual(n.pushes, []); });
+  }
+});

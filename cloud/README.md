@@ -68,6 +68,7 @@ Every failed read goes to the `sensor_errors` table (time, reason, the RM4's raw
 | `http` / `network` | the BroadLink cloud failed or did not answer within 15 s |
 | `bad_reply` / `range` | unexpected reply or out-of-range value; see `raw` |
 | `session` | `BROADLINK_SESSION` is invalid |
+| `suspect` | reads look fine, but the AC has been cooling for 45+ min, the room is 2°+ above target and not cooling: the HTS2 is stuck (replug its cable) or the AC missed the command. Pushed once per AC run. |
 
 There is no retry or reconnect: the cron sends one request a minute and waits for the next minute on failure. The worker never talks to the RM4 directly, so there is nothing to reconnect; the BroadLink cloud reaches the device over its own link.
 
