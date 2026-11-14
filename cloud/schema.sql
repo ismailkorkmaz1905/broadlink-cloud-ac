@@ -6,3 +6,7 @@ CREATE TABLE IF NOT EXISTS ac_state (id INTEGER PRIMARY KEY CHECK (id = 1), powe
 
 CREATE TABLE IF NOT EXISTS ac_log (at INTEGER NOT NULL, action TEXT NOT NULL, target INTEGER, fan TEXT, source TEXT NOT NULL, ok INTEGER NOT NULL, temperature REAL);
 CREATE INDEX IF NOT EXISTS ac_log_at ON ac_log (at);
+
+CREATE TABLE IF NOT EXISTS sensor_errors (at INTEGER NOT NULL, reason TEXT NOT NULL, raw TEXT, detail TEXT);
+CREATE INDEX IF NOT EXISTS sensor_errors_at ON sensor_errors (at);
+CREATE TABLE IF NOT EXISTS sensor_gaps (started INTEGER PRIMARY KEY, ended INTEGER, reads INTEGER NOT NULL, zero_reads INTEGER NOT NULL, reason TEXT NOT NULL);
