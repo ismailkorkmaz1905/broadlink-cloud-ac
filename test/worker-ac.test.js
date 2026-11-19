@@ -31,6 +31,7 @@ const SESSION = JSON.stringify({
 function setup(profile) {
   const DB = makeDb();
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_25_auto', IR);
+  DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_24_auto', IR);
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('off', IR);
   DB.db.prepare('INSERT INTO profile (id, settings, updated_at) VALUES (1, ?, 0)').run(JSON.stringify(profile));
   return { env: { DB, VIEW_KEY: 'k', BROADLINK_SESSION: SESSION, ASSETS: { fetch: async () => new Response('') } }, DB };
@@ -262,12 +263,12 @@ test('saving a new comfort range sends the new setpoint to the AC at once; other
   globalThis.fetch = async () => Response.json({ event: {} });
   try {
     let res = await put(env, { tMin: 24, tMax: 26, hMin: 40, hMax: 60, auto: true });
-    assert.deepEqual((await res.json()).applied, { action: 'cool', target: 25, fan: 'auto', ok: true });
+    assert.deepEqual((await res.json()).applied, { action: 'cool', target: 24, fan: 'auto', ok: true }); // 22 + 2, the range moved 2 up
     res = await put(env, { tMin: 24, tMax: 26, hMin: 35, hMax: 60, auto: true });
     assert.equal((await res.json()).applied, null);
   } finally { globalThis.fetch = realFetch; }
   const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
-  assert.deepEqual({ ...state }, { power: 'on', target: 25, fan: 'auto', source: 'auto', ok: 1 });
+  assert.deepEqual({ ...state }, { power: 'on', target: 24, fan: 'auto', source: 'auto', ok: 1 });
   const logged = DB.db.prepare('SELECT action, target, source FROM ac_log').all().map(r => ({ ...r }));
-  assert.deepEqual(logged, [{ action: 'cool', target: 25, source: 'manual' }]);
+  assert.deepEqual(logged, [{ action: 'cool', target: 24, source: 'manual' }]);
 });

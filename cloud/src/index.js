@@ -245,7 +245,7 @@ async function profile(request, env, keyed) {
         env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first(),
       ]);
       const temp = sample && Date.now() - sample.at <= 180000 ? sample.temperature : null;
-      const cmd = rangeCommand(data, temp, st);
+      const cmd = rangeCommand(data, temp, st, old);
       if (cmd) applied = { ...cmd, ...(await sendAc(env, cmd.action, cmd.target, cmd.fan, cmd.source ?? 'auto', temp, 'manual')) };
     }
     return json({ profile: data, applied });
