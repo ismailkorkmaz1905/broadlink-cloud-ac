@@ -1,5 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
-import { FANS, FAN_LABEL, bandFor, nextCommand } from '../public/policy.js';
+import { FANS, FAN_LABEL, bandFor, nextCommand, rangeCommand } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 const json = (body, status = 200) => Response.json(body, { status, headers });
@@ -234,8 +234,21 @@ async function profile(request, env, keyed) {
     try { data = JSON.parse(raw); } catch { return json({ error: 'invalid_json' }, 400); }
     if (raw.length > 20000 || !data || typeof data !== 'object' || Array.isArray(data)) return json({ error: 'invalid_profile' }, 400);
     if ('auto' in data && typeof data.auto !== 'boolean') return json({ error: 'invalid_profile' }, 400);
+    const prev = await env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first();
+    const old = prev ? JSON.parse(prev.settings) : {};
     await env.DB.prepare('INSERT OR REPLACE INTO profile (id, settings, updated_at) VALUES (1, ?, ?)').bind(raw, Date.now()).run();
-    return json({ profile: data });
+    // A new comfort range is applied to the AC at once instead of waiting for the next automation step.
+    let applied = null;
+    if (Number.isFinite(data.tMin) && Number.isFinite(data.tMax) && (data.tMin !== old.tMin || data.tMax !== old.tMax)) {
+      const [sample, st] = await Promise.all([
+        env.DB.prepare('SELECT at, temperature FROM samples ORDER BY at DESC LIMIT 1').first(),
+        env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first(),
+      ]);
+      const temp = sample && Date.now() - sample.at <= 180000 ? sample.temperature : null;
+      const cmd = rangeCommand(data, temp, st);
+      if (cmd) applied = { ...cmd, ...(await sendAc(env, cmd.action, cmd.target, cmd.fan, cmd.source ?? 'auto', temp, 'manual')) };
+    }
+    return json({ profile: data, applied });
   }
   return json({ error: 'method_not_allowed' }, 405);
 }

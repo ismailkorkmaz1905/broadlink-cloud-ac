@@ -511,7 +511,7 @@ function renderLog() {
 function renderCfg(fill) {
   $('bandsum').textContent = `${num(cfg.tMin)}-${num(cfg.tMax)}° · ${pct(cfg.hMin)}-${pct(cfg.hMax)}`;
   if (fill) { $('tmin').value = cfg.tMin; $('tmax').value = cfg.tMax; $('hmin').value = cfg.hMin; $('hmax').value = cfg.hMax; }
-  $('cfgmsg').textContent = cfgMsg ? t(cfgMsg) : '';
+  $('cfgmsg').textContent = cfgMsg ? t(...[].concat(cfgMsg)) : '';
 }
 function renderVer() { $('ver').textContent = ver ? `${t('version')} ${ver.version} · ${ver.build}` : ''; }
 function renderAll() { renderRoom(); renderAc(); renderCfg(false); renderVer(); }
@@ -622,8 +622,12 @@ $('auto').onchange = async () => {
 $('save').onclick = async () => {
   const next = { ...cfg, tMin: +$('tmin').value, tMax: +$('tmax').value, hMin: +$('hmin').value, hMax: +$('hmax').value };
   if (![next.tMin, next.tMax, next.hMin, next.hMax].every(Number.isFinite) || next.tMin >= next.tMax || next.hMin >= next.hMax) { cfgMsg = 'cfgInvalid'; renderCfg(false); return; }
-  try { await post('/api/profile', next, 'PUT'); cfg = next; cfgMsg = 'saved'; } catch { cfgMsg = 'saveFail'; }
+  let a = null;
+  try { a = (await post('/api/profile', next, 'PUT')).applied; cfg = next; cfgMsg = 'saved'; } catch { cfgMsg = 'saveFail'; }
+  // The worker applies a new range to the AC at once; show what it sent.
+  if (a) cfgMsg = !a.ok ? 'savedAcFail' : a.action === 'cool' ? ['savedAc', a.target, fanName(a.fan)] : 'saved';
   renderAll(); charts();
+  if (a) { await loadState(); loadHistory(); }
 };
 $('tabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;

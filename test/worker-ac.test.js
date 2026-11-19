@@ -251,3 +251,23 @@ test('no "suspect sensor" push when the room is cooling or the AC only just star
     await withNet({}, async n => { await poll(env); assert.deepEqual(n.pushes, []); });
   }
 });
+
+const put = (env, body) => worker.fetch(new Request('https://x.test/api/profile', { method: 'PUT', headers: { 'x-key': 'k', 'content-type': 'application/json' }, body: JSON.stringify(body) }), env);
+
+test('saving a new comfort range sends the new setpoint to the AC at once; other settings do not', async () => {
+  const { env, DB } = setup({ tMin: 22, tMax: 24, hMin: 40, hMax: 60, auto: true });
+  DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, ?, ?)').run(Date.now(), 25.3, 50);
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 22, 'auto', ?, 'auto', 1)").run(Date.now());
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ event: {} });
+  try {
+    let res = await put(env, { tMin: 24, tMax: 26, hMin: 40, hMax: 60, auto: true });
+    assert.deepEqual((await res.json()).applied, { action: 'cool', target: 25, fan: 'auto', ok: true });
+    res = await put(env, { tMin: 24, tMax: 26, hMin: 35, hMax: 60, auto: true });
+    assert.equal((await res.json()).applied, null);
+  } finally { globalThis.fetch = realFetch; }
+  const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
+  assert.deepEqual({ ...state }, { power: 'on', target: 25, fan: 'auto', source: 'auto', ok: 1 });
+  const logged = DB.db.prepare('SELECT action, target, source FROM ac_log').all().map(r => ({ ...r }));
+  assert.deepEqual(logged, [{ action: 'cool', target: 25, source: 'manual' }]);
+});
