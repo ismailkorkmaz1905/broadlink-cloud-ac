@@ -56,6 +56,8 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   }
   // Room above the comfort range: step down every 10 minutes, as far as 18, until it is back inside. The AC's own
   // thermostat can read several degrees off, so the normal trim floor is not always enough.
+  // Well above the range (tMax + 0.5): jump straight to the trim floor (setpoint - 3) instead of waiting.
+  if (temp > cfg.tMax + DEAD && state.target > lo) return { action: 'cool', target: lo, fan: state.fan, ...keep };
   if (temp > cfg.tMax && age > MIN_GAP && state.target > 18) return { action: 'cool', target: state.target - 1, fan: state.fan, ...keep };
   if (age > TRIM_AFTER) {
     if (e > DEAD && state.target > lo) return { action: 'cool', target: state.target - 1, fan: state.fan, ...keep };
@@ -82,12 +84,14 @@ export function describe(cfg, lang = 'tr') {
   if (lang === 'en') {
     return `Room target ${T}° (middle of the range). Above ${T + DEAD}° the AC is set to ${s}°, fan auto, and stays on. `
       + `Changing the range applies the new setting to the AC at once. `
+      + `If the room goes above ${cfg.tMax + DEAD}° the AC setting drops straight to ${lo}°. `
       + `While the room is above ${cfg.tMax}° the AC setting goes down 1° every 10 minutes (down to 18°). `
       + `Every 20 minutes, if the room is more than ${DEAD}° above the target the AC setting goes down 1°, if below it goes up 1° (between ${lo}° and ${hi}°). `
       + `Below ${cfg.tMin}° it first raises the AC setting by 2°, and switches off if that is not enough. Commands are re-sent every 30 minutes in case the AC missed one.`;
   }
   return `Oda hedefi ${T}° (aralığın ortası). Oda ${T + DEAD}°'yi geçince klima ${s}°'ye, fan otomatiğe ayarlanıp açılır ve açık kalır. `
     + `Aralığı değiştirince yeni ayar klimaya hemen gönderilir. `
+    + `Oda ${cfg.tMax + DEAD}°'yi geçerse klima ayarı hemen ${lo}°'ye iner. `
     + `Oda ${cfg.tMax}°'nin üstündeyken klima ayarı 10 dakikada bir 1° düşer (18°'ye kadar). `
     + `20 dakikada bir oda hedefin ${DEAD}°'den fazla üstündeyse klima ayarı 1° düşer, altındaysa 1° artar (${lo}°-${hi}° arası). `
     + `${cfg.tMin}°'nin altına inerse önce klima ayarı 2° artar, yetmezse kapanır. Klima bir komutu kaçırırsa diye 30 dakikada bir yeniden gönderilir.`;
