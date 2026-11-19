@@ -20,21 +20,11 @@ export function setpoint(cfg) {
 // Range the trim loop may move the AC setpoint in: 3 below to 2 above the starting setpoint.
 export const trimRange = cfg => [clamp(setpoint(cfg) - 3, 18, 30), clamp(setpoint(cfg) + 2, 18, 30)];
 
-// Pull-down when the room is well above the target: 3+ degrees over -> AC minimum, fan high;
-// 1.5+ over -> 3 below the setpoint, fan high. Back to normal control once the room is within 1 degree of the target.
-export const BOOST_HARD = 3, BOOST = 1.5, BOOST_EXIT = 1;
-export function boost(cfg, over) {
-  if (over >= BOOST_HARD) return { target: 18, fan: 'high' };
-  if (over >= BOOST) return { target: trimRange(cfg)[0], fan: 'high' };
-  return null;
-}
-const isBoost = (cfg, state) => state.source !== 'manual' && (state.fan === 'high' || state.target < trimRange(cfg)[0]);
-
 // What the page shows as the automation's decision for this temperature.
 export function plan(cfg, temp) {
   const over = temp - roomTarget(cfg);
   if (temp < cfg.tMin) return { action: 'off', over };
-  if (over > DEAD) return { action: 'cool', target: setpoint(cfg), fan: 'auto', ...boost(cfg, over), over };
+  if (over > DEAD) return { action: 'cool', target: setpoint(cfg), fan: 'auto', over };
   return { action: 'hold', over };
 }
 
@@ -55,14 +45,11 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   const [lo, hi] = trimRange(cfg);
   if (state?.power === 'on' && !state.ok) return age > MIN_GAP ? { action: 'cool', target: state.target, fan: state.fan, ...(state.source === 'manual' ? { source: 'manual' } : {}) } : null;
   // Restart from the setpoint learned last time (kept on the off state), so the same overshoot is not repeated.
-  if (state?.power !== 'on') return e > DEAD && age > MIN_GAP ? { action: 'cool', target: clamp(state?.target ?? setpoint(cfg), lo, hi), fan: 'auto', ...boost(cfg, e) } : null;
+  if (state?.power !== 'on') return e > DEAD && age > MIN_GAP ? { action: 'cool', target: clamp(state?.target ?? setpoint(cfg), lo, hi), fan: 'auto' } : null;
   const keep = state.source === 'manual' ? { source: 'manual' } : {}; // a hand-started AC stays marked as hand-started
-  // Pull-down: hand back to normal control near the target. A running automatic AC is escalated only once the trim
-  // loop has run out (setpoint at the trim floor); escalating earlier made it bounce between fan high and the
-  // nominal setpoint with the room stuck 1-1.5 degrees over the target, i.e. above the comfort range.
-  if (isBoost(cfg, state) && e <= BOOST_EXIT) return { action: 'cool', target: setpoint(cfg), fan: 'auto' };
-  const b = state.source === 'manual' || state.target > lo ? null : boost(cfg, e);
-  if (b && age > MIN_GAP && (state.target > b.target || state.fan !== 'high')) return { action: 'cool', ...b };
+  // An automatic AC outside the normal setting (fan not auto, or setpoint outside the trim range, e.g. left over from
+  // the old pull-down) goes back to it, so the room is held steadily inside the comfort range.
+  if (!keep.source && (state.fan !== 'auto' || state.target < lo || state.target > hi)) return { action: 'cool', target: clamp(state.target, lo, hi), fan: 'auto' };
   if (temp < cfg.tMin) {
     // Too cold: first ease the AC off by 2 degrees; switch it off if that was already done or it is clearly cold.
     if (age <= MIN_GAP) return null;
@@ -76,14 +63,12 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
 }
 
 // What to send right after the comfort range is changed, so the AC follows the new range at once (null = nothing).
-// A running AC gets the new setpoint (pull-down if the room is far above the new target; a hand-started one keeps
-// its fan and stays hand-started). An off AC is started only when the automation is on and the room needs cooling.
+// A running AC gets the new setpoint (a hand-started one keeps its fan and stays hand-started). An off AC is started only when the automation is on and the room needs cooling.
 export function rangeCommand(cfg, temp, state) {
   const p = Number.isFinite(temp) ? plan(cfg, temp) : null;
   if (state?.power !== 'on') return cfg.auto === true && p?.action === 'cool' ? { action: 'cool', target: p.target, fan: p.fan } : null;
   const manual = state.source === 'manual';
-  const b = !manual && p ? boost(cfg, p.over) : null;
-  const cmd = { action: 'cool', target: setpoint(cfg), fan: manual ? state.fan : 'auto', ...b, ...(manual ? { source: 'manual' } : {}) };
+  const cmd = { action: 'cool', target: setpoint(cfg), fan: manual ? state.fan : 'auto', ...(manual ? { source: 'manual' } : {}) };
   return state.ok && cmd.target === state.target && cmd.fan === state.fan ? null : cmd;
 }
 
@@ -91,12 +76,12 @@ export function describe(cfg, lang = 'tr') {
   const T = roomTarget(cfg), s = setpoint(cfg), [lo, hi] = trimRange(cfg);
   if (lang === 'en') {
     return `Room target ${T}° (middle of the range). Above ${T + DEAD}° the AC is set to ${s}°, fan auto, and stays on. `
-      + `If the room is ${BOOST}° or more above the target it starts at ${lo}°, fan high; ${BOOST_HARD}° or more, at 18°, fan high. Within ${BOOST_EXIT}° of the target it goes back to ${s}°, fan auto. Changing the range applies the new setting to the AC at once. `
+      + `Changing the range applies the new setting to the AC at once. `
       + `Every 20 minutes, if the room is more than ${DEAD}° above the target the AC setting goes down 1°, if below it goes up 1° (between ${lo}° and ${hi}°). `
       + `Below ${cfg.tMin}° it first raises the AC setting by 2°, and switches off if that is not enough. Commands are re-sent every 30 minutes in case the AC missed one.`;
   }
   return `Oda hedefi ${T}° (aralığın ortası). Oda ${T + DEAD}°'yi geçince klima ${s}°'ye, fan otomatiğe ayarlanıp açılır ve açık kalır. `
-    + `Oda hedefin ${BOOST}° veya daha fazla üstündeyse ${lo}°, fan yüksekle; ${BOOST_HARD}° veya daha fazla üstündeyse 18°, fan yüksekle başlar. Hedefe ${BOOST_EXIT}° yaklaşınca ${s}°, fan otomatiğe döner. Aralığı değiştirince yeni ayar klimaya hemen gönderilir. `
+    + `Aralığı değiştirince yeni ayar klimaya hemen gönderilir. `
     + `20 dakikada bir oda hedefin ${DEAD}°'den fazla üstündeyse klima ayarı 1° düşer, altındaysa 1° artar (${lo}°-${hi}° arası). `
     + `${cfg.tMin}°'nin altına inerse önce klima ayarı 2° artar, yetmezse kapanır. Klima bir komutu kaçırırsa diye 30 dakikada bir yeniden gönderilir.`;
 }
