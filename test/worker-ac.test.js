@@ -32,6 +32,8 @@ function setup(profile) {
   const DB = makeDb();
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_25_auto', IR);
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_24_auto', IR);
+  DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_24_med', IR);
+  DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_25_low', IR);
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('off', IR);
   DB.db.prepare('INSERT INTO profile (id, settings, updated_at) VALUES (1, ?, 0)').run(JSON.stringify(profile));
   return { env: { DB, VIEW_KEY: 'k', BROADLINK_SESSION: SESSION, ASSETS: { fetch: async () => new Response('') } }, DB };
@@ -167,7 +169,7 @@ test('history carries the AC log for the range plus the entry before it; automat
   assert.equal('hourly' in d, false);
 
   // a hand-started AC that the automation re-sends: state stays manual, the log says auto
-  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 25, 'auto', ?, 'manual', 1)").run(now - 31 * 60000);
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 25, 'low', ?, 'manual', 1)").run(now - 31 * 60000);
   DB.db.prepare('DELETE FROM samples').run();
   await withNet({ fail: false }, async () => { assert.equal((await poll(env)).saved, true); });
   assert.equal(DB.db.prepare('SELECT source FROM ac_state').get().source, 'manual');
@@ -258,17 +260,17 @@ const put = (env, body) => worker.fetch(new Request('https://x.test/api/profile'
 test('saving a new comfort range sends the new setpoint to the AC at once; other settings do not', async () => {
   const { env, DB } = setup({ tMin: 22, tMax: 24, hMin: 40, hMax: 60, auto: true });
   DB.db.prepare('INSERT INTO samples (at, temperature, humidity) VALUES (?, ?, ?)').run(Date.now(), 25.3, 50);
-  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 22, 'auto', ?, 'auto', 1)").run(Date.now());
+  DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 22, 'med', ?, 'auto', 1)").run(Date.now());
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ event: {} });
   try {
     let res = await put(env, { tMin: 24, tMax: 26, hMin: 40, hMax: 60, auto: true });
-    assert.deepEqual((await res.json()).applied, { action: 'cool', target: 24, fan: 'auto', ok: true }); // 22 + 2, the range moved 2 up
+    assert.deepEqual((await res.json()).applied, { action: 'cool', target: 24, fan: 'med', ok: true }); // 22 + 2, the range moved 2 up
     res = await put(env, { tMin: 24, tMax: 26, hMin: 35, hMax: 60, auto: true });
     assert.equal((await res.json()).applied, null);
   } finally { globalThis.fetch = realFetch; }
   const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
-  assert.deepEqual({ ...state }, { power: 'on', target: 24, fan: 'auto', source: 'auto', ok: 1 });
+  assert.deepEqual({ ...state }, { power: 'on', target: 24, fan: 'med', source: 'auto', ok: 1 });
   const logged = DB.db.prepare('SELECT action, target, source FROM ac_log').all().map(r => ({ ...r }));
   assert.deepEqual(logged, [{ action: 'cool', target: 24, source: 'manual' }]);
 });
