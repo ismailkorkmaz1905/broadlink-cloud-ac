@@ -36,8 +36,13 @@ async function sendAc(env, action, target, fan, source, temp, by = source) {
   const row = await env.DB.prepare('SELECT code FROM ir_codes WHERE name = ?').bind(name).first();
   if (!row) return { ok: false, error: 'no_code' };
   const prev = await env.DB.prepare('SELECT power, ok FROM ac_state WHERE id = 1').first();
-  let ok = 1;
-  try { await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code); } catch { ok = 0; }
+  let ok = 1, reply = null;
+  try { reply = (await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code)).reply; } catch (e) { ok = 0; reply = e?.reply ?? e?.message ?? null; }
+  // Every IR send and the cloud's reply go to the diagnostics list (GET /api/diag), reason 'ir_sent' or 'ir_failed'.
+  try {
+    await diagTables(env);
+    await env.DB.prepare('INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, ?, ?, ?)').bind(Date.now(), ok ? 'ir_sent' : 'ir_failed', name, reply).run();
+  } catch { /* diagnostics only */ }
   // An off state keeps the last setpoint (if given), so the automation can restart from what it learned.
   await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', target ?? null, action === 'off' ? null : fan, Date.now(), source, ok).run();
   await log(env, action, action === 'off' ? null : target, action === 'off' ? null : fan, by, ok, temp);

@@ -55,6 +55,9 @@ test('a hand-set target moves the comfort range to target -1/+1 and keeps other 
     { action: 'auto_on', target: null, fan: null, source: 'manual', ok: 1 },
     { action: 'cool', target: 25, fan: 'auto', source: 'manual', ok: 1 },
   ]);
+  // the IR send and the cloud's reply are kept for /api/diag
+  const sent = DB.db.prepare("SELECT reason, raw, detail FROM sensor_errors WHERE reason LIKE 'ir_%'").all().map(r => ({ ...r }));
+  assert.deepEqual(sent, [{ reason: 'ir_sent', raw: 'cool_25_auto', detail: '{"event":{}}' }]);
 });
 
 test('the range is left alone when the command could not be sent', async () => {
