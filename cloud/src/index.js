@@ -69,7 +69,9 @@ async function control(env, sample) {
   const row = await env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first();
   const cfg = row ? JSON.parse(row.settings) : {};
   if (cfg.auto !== true || !Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
-  const state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
+  let state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
+  // Room temperature when the last command was sent, so the policy can see whether the room has moved since.
+  if (state?.at) state = { ...state, temp: (await env.DB.prepare('SELECT temperature FROM samples WHERE at <= ? ORDER BY at DESC LIMIT 1').bind(state.at).first())?.temperature ?? null };
   const cmd = nextCommand(cfg, sample.temperature, state);
   if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature, 'auto');
 }
