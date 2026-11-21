@@ -150,9 +150,11 @@ async function poll(env) {
     // One missed minute is normal for the BroadLink cloud; only a read that stays down for 4+ minutes counts as an outage.
     const down = !last || now - last.at > 4 * 60000;
     await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, ?)').bind(now, down ? 0 : (prev?.ok ?? 1)).run();
-    const why = e?.reason === 'zero'
-      ? 'RM4 cevap veriyor ama sensör 0 °C / %0 döndürüyor (HTS2 kablosu veya donmuş RM4).'
-      : 'Oturum dolmuş olabilir; devam ederse BROADLINK_SESSION yenilenmeli.';
+    const why = {
+      zero: 'RM4 cevap veriyor ama sensör 0 °C / %0 döndürüyor (HTS2 kablosu veya donmuş RM4).',
+      device_offline: 'BroadLink bulutu RM4\'e ulaşamıyor (cihaz çevrimdışı): elektriğini ve Wi-Fi bağlantısını kontrol et.',
+      device_reset: 'RM4 sıfırlanmış ve yeniden eklenmiş; BROADLINK_SESSION yeni eşleşmeyle yeniden yakalanmalı.',
+    }[e?.reason] ?? 'Oturum dolmuş olabilir; devam ederse BROADLINK_SESSION yenilenmeli.';
     if (down && prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', `BroadLink okuması 4 dakikadır başarısız. ${why}`, ['rotating_light']);
     return { saved: false, error: 'cloud_unavailable' };
   }

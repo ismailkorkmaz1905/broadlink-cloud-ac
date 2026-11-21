@@ -275,3 +275,15 @@ test('saving a new comfort range sends the new setpoint to the AC at once; other
   const logged = DB.db.prepare('SELECT action, target, source FROM ac_log').all().map(r => ({ ...r }));
   assert.deepEqual(logged, [{ action: 'cool', target: 24, source: 'manual' }]);
 });
+
+test('a command the cloud could not deliver is a failure, not "sent"', async () => {
+  const { env, DB } = setup({ tMin: 23, tMax: 26, auto: false });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ event: { header: { name: 'ErrorResponse' }, payload: { type: 'ENDPOINT_UNREACHABLE' } } });
+  try {
+    assert.equal((await post(env, { action: 'cool', target: 25, fan: 'auto' })).status, 502);
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(DB.db.prepare('SELECT ok FROM ac_state').get().ok, 0);
+  assert.equal(DB.db.prepare("SELECT reason FROM sensor_errors WHERE reason LIKE 'ir_%'").get().reason, 'ir_failed');
+  assert.deepEqual(settings(DB), { tMin: 23, tMax: 26, auto: false });
+});

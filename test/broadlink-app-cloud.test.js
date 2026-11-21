@@ -48,6 +48,10 @@ test('failed reads say why, and carry the raw RM4 reply when there was one', asy
   assert.deepEqual(await reason(async () => ({ ok: false, status: 503 })), { reason: 'http', raw: undefined, detail: 'HTTP 503' });
   assert.deepEqual(await reason(async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); }), { reason: 'network', raw: undefined, detail: 'TimeoutError' });
   assert.deepEqual(await reason(async () => ({ ok: true, json: async () => ({ status: -4000, msg: 'device offline' }) })), { reason: 'no_data', raw: undefined, detail: '{"status":-4000,"msg":"device offline"}' });
+  const cloudErr = type => async () => ({ ok: true, json: async () => ({ context: {}, event: { header: { name: 'ErrorResponse' }, payload: { type, status: -7 } } }) });
+  assert.equal((await reason(cloudErr('ENDPOINT_UNREACHABLE'))).reason, 'device_offline');
+  assert.equal((await reason(cloudErr('DEVICE_RESET'))).reason, 'device_reset');
+  assert.equal((await reason(cloudErr('OTHER'))).reason, 'cloud_error');
 });
 
 test('allows only the license query on the session URL', () => {
@@ -66,4 +70,7 @@ test('sends an IR packet with the 02 00 00 00 prefix and rejects other data', as
   assert.equal(sent.directive.header.timstamp, '1700000000');
   await assert.rejects(sendIrCommand(session(), Buffer.alloc(40).toString('base64'), fetchImpl));
   await assert.rejects(sendIrCommand(session(), ir.toString('base64'), async () => ({ ok: false })));
+  // the cloud answers 200 with an ErrorResponse when the RM4 is offline or was reset; the IR code never left
+  const reset = async () => ({ ok: true, json: async () => ({ event: { header: { name: 'ErrorResponse' }, payload: { type: 'DEVICE_RESET' } } }) });
+  await assert.rejects(sendIrCommand(session(), ir.toString('base64'), reset), e => e.reason === 'device_reset' && /DEVICE_RESET/.test(e.reply));
 });
