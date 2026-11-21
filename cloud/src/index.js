@@ -262,6 +262,8 @@ async function profile(request, env, keyed) {
   return json({ error: 'method_not_allowed' }, 405);
 }
 
+const READ_ONLY = ['/api/version', '/api/state', '/api/sensor', '/api/diag'];
+
 export default {
   scheduled(_event, env, ctx) { ctx.waitUntil(poll(env)); },
   async fetch(request, env) {
@@ -283,6 +285,13 @@ export default {
       return withCookie(Response.json(manifest, { headers: { ...headers, 'Content-Type': 'application/manifest+json' } }));
     }
     if (!url.pathname.startsWith('/api/')) return withCookie(await env.ASSETS.fetch(request));
+    // LOG_KEY (optional secret, x-key header only) reads the state, history and diagnostics and can change nothing.
+    if (!authorized && request.method === 'GET' && READ_ONLY.includes(url.pathname) && await equal(env.LOG_KEY, request.headers.get('x-key'))) {
+      if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
+      if (url.pathname === '/api/state') return state(env);
+      if (url.pathname === '/api/sensor') return sensor(url, env);
+      return diag(url, env);
+    }
     if (!authorized) return json({ error: 'unauthorized' }, 401);
     if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
     if (url.pathname === '/api/state') return state(env);

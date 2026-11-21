@@ -287,3 +287,20 @@ test('a command the cloud could not deliver is a failure, not "sent"', async () 
   assert.equal(DB.db.prepare("SELECT reason FROM sensor_errors WHERE reason LIKE 'ir_%'").get().reason, 'ir_failed');
   assert.deepEqual(settings(DB), { tMin: 23, tMax: 26, auto: false });
 });
+
+test('LOG_KEY reads state, history and diagnostics but cannot change anything', async () => {
+  const { env } = setup({ tMin: 24, tMax: 26, auto: true });
+  env.LOG_KEY = 'log';
+  const req = (path, init = {}) => worker.fetch(new Request(`https://x.test${path}`, { ...init, headers: { 'x-key': 'log', 'content-type': 'application/json', ...(init.headers ?? {}) } }), env);
+  for (const path of ['/api/version', '/api/state', '/api/sensor?range=6s', '/api/diag']) assert.equal((await req(path)).status, 200, path);
+  assert.equal((await req('/api/ac', { method: 'POST', body: JSON.stringify({ action: 'off' }) })).status, 401);
+  assert.equal((await req('/api/ac', { method: 'POST', body: JSON.stringify({ auto: false }) })).status, 401);
+  assert.equal((await req('/api/profile', { method: 'PUT', body: JSON.stringify({ tMin: 20, tMax: 22 }) })).status, 401);
+  assert.equal((await req('/api/profile')).status, 401);
+  assert.equal((await req('/api/poll', { method: 'POST' })).status, 401);
+  // only as a header: in the URL it does not open anything
+  assert.equal((await worker.fetch(new Request('https://x.test/api/state?k=log'), env)).status, 401);
+  // without the secret set, nothing opens
+  delete env.LOG_KEY;
+  assert.equal((await req('/api/state')).status, 401);
+});
