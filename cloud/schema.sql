@@ -10,3 +10,5 @@ CREATE INDEX IF NOT EXISTS ac_log_at ON ac_log (at);
 CREATE TABLE IF NOT EXISTS sensor_errors (at INTEGER NOT NULL, reason TEXT NOT NULL, raw TEXT, detail TEXT);
 CREATE INDEX IF NOT EXISTS sensor_errors_at ON sensor_errors (at);
 CREATE TABLE IF NOT EXISTS sensor_gaps (started INTEGER PRIMARY KEY, ended INTEGER, reads INTEGER NOT NULL, zero_reads INTEGER NOT NULL, reason TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS outdoor (at INTEGER PRIMARY KEY, temperature REAL NOT NULL);

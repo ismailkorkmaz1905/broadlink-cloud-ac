@@ -40,9 +40,10 @@ test('setpoint nudges stop at the trim range limits', () => {
   assert.equal(nextCommand(band, 24.2, st({ target: 27 }), T0 + TRIM_AFTER + 1), null);
 });
 
-test('below the band it first raises the setpoint by 2, then switches off', () => {
+test('below the band it raises the setpoint by 1 every 10 minutes, then switches off', () => {
   assert.equal(nextCommand(band, 24.0, st(), T0 + MIN_GAP + 1), null);
-  assert.deepEqual(nextCommand(band, 23.9, st(), T0 + MIN_GAP + 1), { action: 'cool', target: 27, fan: 'auto' });
+  assert.deepEqual(nextCommand(band, 23.9, st(), T0 + MIN_GAP + 1), { action: 'cool', target: 26, fan: 'auto' });
+  assert.deepEqual(nextCommand(band, 23.9, st({ target: 26 }), T0 + MIN_GAP + 1), { action: 'cool', target: 27, fan: 'auto' });
   assert.deepEqual(nextCommand(band, 23.9, st({ target: 27 }), T0 + MIN_GAP + 1), { action: 'off', target: 27 });
   assert.deepEqual(nextCommand(band, 23.4, st(), T0 + MIN_GAP + 1), { action: 'off', target: 25 }); // clearly cold
   assert.equal(nextCommand(band, 23.9, st(), T0 + 1000), null);

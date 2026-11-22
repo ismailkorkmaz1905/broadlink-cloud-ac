@@ -64,9 +64,10 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   // An automatic AC left at a fan outside the steps (e.g. the old fan-high pull-down) goes back to auto at once.
   if (!keep.source && step < 0) return { action: 'cool', target: Math.min(state.target, hi), fan: 'auto' };
   if (temp < cfg.tMin) {
-    // Too cold: first ease the AC off by 2 degrees; switch it off if that was already done or it is clearly cold.
+    // Too cold: ease the AC off by 1 degree every 10 minutes; switch it off at the top of the trim range or when it is
+    // clearly cold. (+2 steps overshot: night of 2026-11-22, 24 -> 28 in 10 minutes, room 24.95 -> 26.47 in 75 minutes.)
     if (age <= MIN_GAP) return null;
-    return state.target < hi && temp >= cfg.tMin - DEAD ? { action: 'cool', target: Math.min(hi, state.target + 2), fan: state.fan, ...keep } : { action: 'off', target: state.target };
+    return state.target < hi && temp >= cfg.tMin - DEAD ? { action: 'cool', target: state.target + 1, fan: state.fan, ...keep } : { action: 'off', target: state.target };
   }
   // Well above the range (tMax + 0.5): jump straight to the trim floor (setpoint - 3) instead of waiting.
   if (temp > cfg.tMax + DEAD && state.target > lo) return { action: 'cool', target: lo, fan: state.fan, ...keep };
@@ -114,7 +115,7 @@ export function describe(cfg, lang = 'tr') {
       + `Once the room is back in the range, a setting below ${lo}° comes back up to ${lo}° at once; the fan goes back to auto at the target. `
       + `Changing the range applies the new setting to the AC at once. `
       + `Every 20 minutes, if the room is more than ${DEAD}° above the target the AC setting goes down 1°, if below it goes up 1° (between ${lo}° and ${hi}°). `
-      + `Below ${cfg.tMin}° it first raises the AC setting by 2°, and switches off if that is not enough; it restarts from the last setting (${lo}°-${hi}°). Commands are re-sent every 30 minutes in case the AC missed one.`;
+      + `Below ${cfg.tMin}° it raises the AC setting by 1° every 10 minutes, and switches off if that is not enough; it restarts from the last setting (${lo}°-${hi}°). Commands are re-sent every 30 minutes in case the AC missed one.`;
   }
   return `Oda hedefi ${T}° (aralığın ortası). Oda ${T + DEAD}°'yi geçince klima ${s}°'ye, fan otomatiğe ayarlanıp açılır ve açık kalır. `
     + `Otomatik fan komutundan 2 dakika sonra oda ${MOVED}° düşmediyse fan düşüğe geçer. `
@@ -123,5 +124,5 @@ export function describe(cfg, lang = 'tr') {
     + `Oda aralığa geri girince ${lo}°'nin altındaki ayar hemen ${lo}°'ye çıkar; oda hedefe inince fan otomatiğe döner. `
     + `Aralığı değiştirince yeni ayar klimaya hemen gönderilir. `
     + `20 dakikada bir oda hedefin ${DEAD}°'den fazla üstündeyse klima ayarı 1° düşer, altındaysa 1° artar (${lo}°-${hi}° arası). `
-    + `${cfg.tMin}°'nin altına inerse önce klima ayarı 2° artar, yetmezse kapanır; tekrar son ayardan (${lo}°-${hi}° arası) açılır. Klima bir komutu kaçırırsa diye 30 dakikada bir yeniden gönderilir.`;
+    + `${cfg.tMin}°'nin altına inerse klima ayarı 10 dakikada bir 1° artar, yetmezse kapanır; tekrar son ayardan (${lo}°-${hi}° arası) açılır. Klima bir komutu kaçırırsa diye 30 dakikada bir yeniden gönderilir.`;
 }

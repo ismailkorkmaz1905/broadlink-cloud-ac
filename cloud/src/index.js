@@ -211,7 +211,9 @@ async function sensor(url, env) {
   const samples = await env.DB.prepare('SELECT CAST(at / ? AS INTEGER) * ? AS at, AVG(temperature) AS temperature, AVG(humidity) AS humidity FROM samples WHERE at >= ? GROUP BY CAST(at / ? AS INTEGER) ORDER BY at ASC LIMIT 3000').bind(bucket, bucket, since, bucket).all();
   // AC log for the same range, plus the last entry before it so the chart knows the state at its left edge.
   const log = await env.DB.prepare('SELECT at, action, target, fan, source, ok, temperature FROM ac_log WHERE at >= COALESCE((SELECT MAX(at) FROM ac_log WHERE at < ?), 0) ORDER BY at ASC LIMIT 1000').bind(since).all();
-  return json({ sample, samples: samples.results, log: log.results, since });
+  let outdoor = [];
+  try { outdoor = (await env.DB.prepare('SELECT at, temperature FROM outdoor WHERE at >= ? ORDER BY at ASC LIMIT 2000').bind(since).all()).results; } catch { /* table not created yet */ }
+  return json({ sample, samples: samples.results, log: log.results, outdoor, since });
 }
 
 // Everything the page refreshes each minute, in one request.
@@ -262,10 +264,23 @@ async function profile(request, env, keyed) {
   return json({ error: 'method_not_allowed' }, 405);
 }
 
+// Outdoor temperature for Singapore (city centre, Open-Meteo, no key) every 30 minutes, so the logs can show how the
+// AC setting the room needs moves with the weather. Logged only; the automation does not use it yet. Never throws.
+async function outdoorTemp(env) {
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS outdoor (at INTEGER PRIMARY KEY, temperature REAL NOT NULL)').run();
+    const last = await env.DB.prepare('SELECT MAX(at) AS at FROM outdoor').first();
+    if (last?.at && Date.now() - last.at < 29 * 60000) return;
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=1.35&longitude=103.82&current=temperature_2m');
+    const t = (await r.json())?.current?.temperature_2m;
+    if (Number.isFinite(t)) await env.DB.prepare('INSERT OR IGNORE INTO outdoor (at, temperature) VALUES (?, ?)').bind(Date.now(), t).run();
+  } catch { /* weather is best effort */ }
+}
+
 const READ_ONLY = ['/api/version', '/api/state', '/api/sensor', '/api/diag'];
 
 export default {
-  scheduled(_event, env, ctx) { ctx.waitUntil(poll(env)); },
+  scheduled(_event, env, ctx) { ctx.waitUntil(poll(env)); ctx.waitUntil(outdoorTemp(env)); },
   async fetch(request, env) {
     const url = new URL(request.url);
     const supplied = url.searchParams.get('k');

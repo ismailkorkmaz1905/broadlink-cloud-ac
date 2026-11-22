@@ -304,3 +304,24 @@ test('LOG_KEY reads state, history and diagnostics but cannot change anything', 
   delete env.LOG_KEY;
   assert.equal((await req('/api/state')).status, 401);
 });
+
+test('outdoor temperature is saved every 30 minutes and shown with the history', async () => {
+  const { env, DB } = setup({ tMin: 24, tMax: 26, auto: false });
+  const real = globalThis.fetch;
+  let weather = 0;
+  globalThis.fetch = async url => {
+    if (String(url).includes('open-meteo')) { weather++; return Response.json({ current: { temperature_2m: 30.5 } }); }
+    return Response.json({ event: {} });
+  };
+  try {
+    for (let i = 0; i < 2; i++) {
+      const jobs = [];
+      worker.scheduled({}, env, { waitUntil: p => jobs.push(p) });
+      await Promise.all(jobs);
+    }
+  } finally { globalThis.fetch = real; }
+  assert.equal(weather, 1);
+  assert.deepEqual(DB.db.prepare('SELECT temperature FROM outdoor').all().map(r => r.temperature), [30.5]);
+  const d = await (await worker.fetch(new Request('https://x.test/api/sensor?range=6s', { headers: { 'x-key': 'k' } }), env)).json();
+  assert.equal(d.outdoor[0].temperature, 30.5);
+});
