@@ -20,14 +20,16 @@ export function setpoint(cfg) {
   return clamp(Math.round(roomTarget(cfg)), 18, 30);
 }
 
-// Range the trim loop may move the AC setpoint in: 3 below to 2 above the starting setpoint.
-export const trimRange = cfg => [clamp(setpoint(cfg) - 3, 18, 30), clamp(setpoint(cfg) + 2, 18, 30)];
+// Range the trim loop may move the AC setpoint in: 3 below to 1 below the starting setpoint. The AC's thermostat reads about
+// 3 degrees warm, so a setpoint at or above the starting one barely cools: on 2026-11-23 the setpoint crept 23 -> 27 over
+// 4 hours while the room sat at the bottom edge of a 1 degree range, and the room then warmed 25.0 -> 26.4 in 40 minutes.
+export const trimRange = cfg => [clamp(setpoint(cfg) - 3, 18, 30), clamp(setpoint(cfg) - 1, 18, 30)];
 
 // What the page shows as the automation's decision for this temperature.
 export function plan(cfg, temp) {
   const over = temp - roomTarget(cfg);
   if (temp < cfg.tMin) return { action: 'off', over };
-  if (over > DEAD) return { action: 'cool', target: setpoint(cfg), fan: 'auto', over };
+  if (over > DEAD) return { action: 'cool', target: trimRange(cfg)[1], fan: 'auto', over };
   return { action: 'hold', over };
 }
 
@@ -39,6 +41,8 @@ export const MIN_GAP = 10 * 60000;
 // swinging the room across the whole range about once an hour (night of 2026-11-23, setpoint 23 <-> 26).
 export const STEP_GAP = 20 * 60000;
 export const RESEND = 30 * 60000;
+// A dip this small below the range (room sensor noise at the edge) does not raise the setpoint or switch the AC off.
+export const COLD_DIP = 0.2;
 export const TRIM_AFTER = 20 * 60000;
 // The auto fan sometimes does not blow (the AC's own thermostat decides). 2 minutes after a command with the auto fan,
 // a room that has not dropped at least 0.1 degree since that command gets the low fan.
@@ -52,13 +56,13 @@ export const COOLING = 0.2;
 // plus `temp`, the room temperature when it was sent.
 // Steady-room control: once cooling, the AC stays on and its own inverter holds the room. The AC's thermostat reads about
 // 3 degrees warm (logs 2026-11-19..21: setpoint 22-23 holds the room near 25.5-26), so the setpoint lives in the trim range
-// (setpoint - 3 .. + 2). Only while the room is above the range and not cooling does it go below that; back in the range
+// (setpoint - 3 .. - 1). Only while the room is above the range and not cooling does it go below that; back in the range
 // it comes back up to the trim floor at once. The AC is switched off only when the room falls below the band.
 export function nextCommand(cfg, temp, state, now = Date.now()) {
   const age = state ? now - state.at : Infinity;
   const e = temp - roomTarget(cfg);
   const [lo, hi] = trimRange(cfg);
-  const base = setpoint(cfg);
+  const base = hi; // a fresh start uses the trim ceiling: the starting setpoint itself barely cools
   if (state?.power === 'on' && !state.ok) return age > MIN_GAP ? { action: 'cool', target: state.target, fan: state.fan, ...(state.source === 'manual' ? { source: 'manual' } : {}) } : null;
   // Restart from the setpoint learned last time (kept on the off state), inside the trim range.
   if (state?.power !== 'on') return e > DEAD && age > MIN_GAP ? { action: 'cool', target: clamp(state?.target ?? base, lo, hi), fan: 'auto' } : null;
@@ -67,6 +71,7 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   // An automatic AC left at a fan outside the steps (e.g. the old fan-high pull-down) goes back to auto at once.
   if (!keep.source && step < 0) return { action: 'cool', target: Math.min(state.target, hi), fan: 'auto' };
   if (temp < cfg.tMin) {
+    if (temp >= cfg.tMin - COLD_DIP) return age > RESEND ? { action: 'cool', target: state.target, fan: state.fan, ...keep } : null;
     // Too cold: ease the AC off by 1 degree every 20 minutes; switch it off at the top of the trim range or when it is
     // clearly cold. (+2 steps overshot: night of 2026-11-22, 24 -> 28 in 10 minutes, room 24.95 -> 26.47 in 75 minutes.)
     if (age <= STEP_GAP) return null;
@@ -74,6 +79,8 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   }
   // Well above the range (tMax + 0.5): jump straight to the trim floor (setpoint - 3) instead of waiting.
   if (temp > cfg.tMax + DEAD && state.target > lo) return { action: 'cool', target: lo, fan: state.fan, ...keep };
+  // Above the range with the setpoint above the trim ceiling (it barely cools there): come down to the ceiling at once.
+  if (temp > cfg.tMax && state.target > hi) return { action: 'cool', target: hi, fan: state.fan, ...keep };
   // Auto fan, room still above the target zone and not cooling 2 minutes after the command: low fan.
   if (step === 0 && e > DEAD && age > FAN_CHECK && Number.isFinite(state.temp) && temp > state.temp - MOVED) return { action: 'cool', target: state.target, fan: FAN_STEPS[1], ...keep };
   // Back inside the range: a setpoint pulled below the trim floor comes back up to it at once. (Going back to the normal
@@ -104,15 +111,15 @@ export function rangeCommand(cfg, temp, state, prev) {
   const manual = state.source === 'manual';
   // Keep what the trim loop learned: move the running setpoint by as much as the range moved.
   const moved = Number.isFinite(prev?.tMin) && Number.isFinite(prev?.tMax) ? setpoint(cfg) - setpoint(prev) : null;
-  const target = moved === null ? setpoint(cfg) : clamp(state.target + moved, 18, 30);
+  const target = moved === null ? trimRange(cfg)[1] : clamp(state.target + moved, 18, 30);
   const cmd = { action: 'cool', target, fan: manual || FAN_STEPS.includes(state.fan) ? state.fan : 'auto', ...(manual ? { source: 'manual' } : {}) };
   return state.ok && cmd.target === state.target && cmd.fan === state.fan ? null : cmd;
 }
 
 export function describe(cfg, lang = 'tr') {
-  const T = roomTarget(cfg), s = setpoint(cfg), [lo, hi] = trimRange(cfg);
+  const T = roomTarget(cfg), [lo, hi] = trimRange(cfg);
   if (lang === 'en') {
-    return `Room target ${T}° (middle of the range). Above ${T + DEAD}° the AC is set to ${s}°, fan auto, and stays on. `
+    return `Room target ${T}° (middle of the range). Above ${T + DEAD}° the AC is set to ${hi}°, fan auto, and stays on. `
       + `If the room has not dropped ${MOVED}° 2 minutes after an auto-fan command, the fan goes to low. `
       + `If the room is above ${cfg.tMax}° and has not cooled ${COOLING}° in 20 minutes, the fan goes low -> medium, then the setting goes down 1° every 20 minutes (down to 18°). `
       + `If the room goes above ${cfg.tMax + DEAD}° the AC setting drops straight to ${lo}°. `
@@ -121,7 +128,7 @@ export function describe(cfg, lang = 'tr') {
       + `Every 20 minutes, if the room is more than ${DEAD}° above the target the AC setting goes down 1°, if below it goes up 1° (between ${lo}° and ${hi}°). `
       + `Below ${cfg.tMin}° it raises the AC setting by 1° every 20 minutes, and switches off if that is not enough; it restarts from the last setting (${lo}°-${hi}°). Commands are re-sent every 30 minutes in case the AC missed one.`;
   }
-  return `Oda hedefi ${T}° (aralığın ortası). Oda ${T + DEAD}°'yi geçince klima ${s}°'ye, fan otomatiğe ayarlanıp açılır ve açık kalır. `
+  return `Oda hedefi ${T}° (aralığın ortası). Oda ${T + DEAD}°'yi geçince klima ${hi}°'ye, fan otomatiğe ayarlanıp açılır ve açık kalır. `
     + `Otomatik fan komutundan 2 dakika sonra oda ${MOVED}° düşmediyse fan düşüğe geçer. `
     + `Oda ${cfg.tMax}°'nin üstündeyse ve 20 dakikada ${COOLING}° soğumadıysa fan düşük -> orta olur, sonra klima ayarı 20 dakikada bir 1° düşer (18°'ye kadar). `
     + `Oda ${cfg.tMax + DEAD}°'yi geçerse klima ayarı hemen ${lo}°'ye iner. `
