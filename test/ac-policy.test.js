@@ -53,10 +53,17 @@ test('below the band it raises the setpoint by 1 every 20 minutes, then switches
   assert.equal(nextCommand(band, 23.7, st({ target: 22 }), T0 + MIN_GAP + 1), null); // 10 minutes is too soon, the AC lags 20-30
 });
 
-test('restarts from the setpoint it had when it switched off, inside the trim range', () => {
-  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: 23, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 23, fan: 'auto' });
-  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: 18, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 22, fan: 'auto' });
-  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: 30, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
+test('restarts at the trim ceiling, not at the setpoint it was switched off with', () => {
+  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: 23, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
+  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: 18, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
+  assert.deepEqual(nextCommand(band, 25.6, st({ power: 'off', target: null, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
+});
+
+test('switching off is decided after 10 minutes, the +1 step after 20', () => {
+  assert.equal(nextCommand(band, 23.4, st({ target: 22 }), T0 + 1000), null);
+  assert.deepEqual(nextCommand(band, 23.4, st({ target: 22 }), T0 + MIN_GAP + 1), { action: 'off', target: 22 }); // clearly cold
+  assert.deepEqual(nextCommand(band, 23.7, st({ target: 24 }), T0 + MIN_GAP + 1), { action: 'off', target: 24 }); // already at the ceiling
+  assert.equal(nextCommand(band, 23.7, st({ target: 22 }), T0 + MIN_GAP + 1), null); // soft cold: +1 waits 20 minutes
 });
 
 test('a hand-started AC keeps its fan and stays marked as hand-started while being nudged', () => {
