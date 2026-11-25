@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { plan, setpoint, bandFor, nextCommand, rangeCommand, trimRange, MIN_GAP, STEP_GAP, RESEND, TRIM_AFTER, FAN_CHECK } from '../cloud/public/policy.js';
+import { plan, setpoint, nextCommand, rangeCommand, trimRange, boostTarget, MIN_GAP, STEP_GAP, RESEND, TRIM_AFTER, FAN_CHECK, MANUAL_HOLD } from '../cloud/public/policy.js';
+
+const bandFor = target => ({ tMin: target - 1, tMax: target + 1 });
 
 const band = bandFor(25); // 24-26, room target 25
 const T0 = 1_000_000_000;
@@ -66,21 +68,47 @@ test('switching off is decided after 10 minutes, the +1 step after 20', () => {
   assert.equal(nextCommand(band, 23.7, st({ target: 22 }), T0 + MIN_GAP + 1), null); // soft cold: +1 waits 20 minutes
 });
 
-test('a hand-started AC keeps its fan and stays marked as hand-started while being nudged', () => {
-  const hand = st({ source: 'manual', fan: 'high' });
-  assert.deepEqual(nextCommand(band, 26.1, hand, T0 + TRIM_AFTER + 1), { action: 'cool', target: 23, fan: 'high', source: 'manual' });
-  assert.deepEqual(nextCommand(band, 25.2, hand, T0 + RESEND + 1), { action: 'cool', target: 24, fan: 'high', source: 'manual' });
+test('a hand-set command is left alone for 10 minutes and while the room is above the range, up to an hour', () => {
+  const hand = st({ source: 'manual', fan: 'high', target: 20 });
+  // above the range: held, not even re-sent (a re-send would restart the hour)
+  assert.equal(nextCommand(band, 26.4, hand, T0 + 30 * 60000), null);
+  assert.equal(nextCommand(band, 26.4, hand, T0 + RESEND + 1), null);
+  assert.equal(nextCommand(band, 28.0, st({ source: 'manual' }), T0 + 1000), null);
+  // an hour on, still above the range: the automation takes over (hot room -> hot-room pull-down)
+  assert.deepEqual(nextCommand(band, 28.0, st({ source: 'manual' }), T0 + MANUAL_HOLD + 1), { action: 'cool', target: 20, fan: 'high' });
+  // in the range: held for 10 minutes, then back to the trim range and the low fan (2026-11-24 20:11: 23 high -> 20 at once)
+  assert.equal(nextCommand(band, 25.8, hand, T0 + MIN_GAP - 1), null);
+  assert.deepEqual(nextCommand(band, 25.8, hand, T0 + MIN_GAP + 1), { action: 'cool', target: 22, fan: 'low' });
+  // nothing to change: the next re-send is the automation's own
+  assert.equal(nextCommand(band, 25.2, st({ source: 'manual' }), T0 + MIN_GAP + 1), null);
+  assert.deepEqual(nextCommand(band, 25.2, st({ source: 'manual' }), T0 + RESEND + 1), { action: 'cool', target: 24, fan: 'quiet' });
+  // a fan the automation stepped up on a hand-set AC comes back to quiet at the target (2026-11-25: low from 03:01 to morning)
+  assert.deepEqual(nextCommand(band, 25.0, st({ fan: 'low', source: 'manual' }), T0 + TRIM_AFTER + 1), { action: 'cool', target: 24, fan: 'quiet' });
 });
 
 test('a command that failed is retried as it was', () => {
   assert.deepEqual(nextCommand(band, 26.0, st({ ok: 0, target: 24, fan: 'med' }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'med' });
+  assert.deepEqual(nextCommand(band, 26.0, st({ ok: 0, source: 'manual' }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'quiet', source: 'manual' });
 });
 
-test('a hot room (more than 1 degree above the range) starts on the auto fan, others on quiet: no fan high, no jump to 18', () => {
-  assert.deepEqual(nextCommand(bandFor(25.6), 30.0, null, T0), { action: 'cool', target: 25, fan: 'auto' });
-  assert.deepEqual(nextCommand(band, 28.0, st({ power: 'off', target: 24, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
+test('a hot room (more than 1 degree above the range) is pulled down hard until it is back at the top of the range', () => {
+  assert.equal(boostTarget(band), 20);
+  assert.deepEqual(nextCommand(band, 27.1, null, T0), { action: 'cool', target: 20, fan: 'high' });
+  assert.deepEqual(nextCommand(band, 28.0, st({ power: 'off', target: 24, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 20, fan: 'high' });
   assert.deepEqual(nextCommand(band, 26.8, st({ power: 'off', target: 24, fan: null }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'quiet' });
-  assert.equal(plan(band, 30.0).fan, 'auto');
+  assert.deepEqual(plan(band, 30.0), { action: 'cool', target: 20, fan: 'high', over: 5 });
+  // a running AC goes to the pull-down at once; one already there (or lower) is kept
+  assert.deepEqual(nextCommand(band, 27.5, st(), T0 + 1000), { action: 'cool', target: 20, fan: 'high' });
+  assert.equal(nextCommand(band, 27.5, st({ target: 20, fan: 'high' }), T0 + 1000), null);
+  assert.equal(nextCommand(band, 27.5, st({ target: 19, fan: 'high' }), T0 + 1000), null);
+  // not cooling for 20 minutes: the setpoint still steps down
+  assert.deepEqual(nextCommand(band, 27.5, st({ target: 20, fan: 'high', temp: 27.5 }), T0 + STEP_GAP + 1), { action: 'cool', target: 19, fan: 'high' });
+  // between the top of the range and 1 degree above it: keeps pulling
+  assert.equal(nextCommand(band, 26.5, st({ target: 20, fan: 'high' }), T0 + 1000), null);
+  // back at the top of the range (or below it): trim floor, low fan; quiet once at the target
+  assert.deepEqual(nextCommand(band, 26.0, st({ target: 20, fan: 'high' }), T0 + 1000), { action: 'cool', target: 22, fan: 'low' });
+  assert.deepEqual(nextCommand(band, 23.5, st({ target: 20, fan: 'high' }), T0 + 1000), { action: 'cool', target: 22, fan: 'low' });
+  assert.deepEqual(nextCommand(band, 25.0, st({ target: 22, fan: 'low' }), T0 + TRIM_AFTER + 1), { action: 'cool', target: 22, fan: 'quiet' });
 });
 
 test('above the comfort range: fan quiet -> auto -> low -> medium, then the setpoint steps down every 20 minutes to 18', () => {
@@ -93,26 +121,15 @@ test('above the comfort range: fan quiet -> auto -> low -> medium, then the setp
   assert.equal(nextCommand(band, 26.2, st({ target: 18, fan: 'med' }), T0 + STEP_GAP + 1), null);
   // a setpoint above the trim ceiling (it barely cools there) comes down to the ceiling at once, even right after a command
   assert.deepEqual(nextCommand(band, 26.4, st({ target: 27 }), T0 + 1000), { action: 'cool', target: 24, fan: 'quiet' });
-  assert.deepEqual(nextCommand(band, 26.4, st({ target: 27, source: 'manual' }), T0 + 1000), { action: 'cool', target: 24, fan: 'quiet', source: 'manual' });
-  // a hand-picked high or quiet fan is not touched
-  assert.deepEqual(nextCommand(band, 26.4, st({ source: 'manual', fan: 'high' }), T0 + STEP_GAP + 1), { action: 'cool', target: 23, fan: 'high', source: 'manual' });
   // still cooling (dropped 0.2 or more since the last command): no fan or setpoint step
   assert.equal(nextCommand(band, 26.4, st({ temp: 26.6 }), T0 + STEP_GAP + 1), null);
   assert.equal(nextCommand(band, 26.4, st({ fan: 'med', temp: 26.7 }), T0 + STEP_GAP + 1), null);
   assert.deepEqual(nextCommand(band, 26.4, st({ fan: 'med', temp: 26.5 }), T0 + STEP_GAP + 1), { action: 'cool', target: 23, fan: 'med' });
-  // back at the target: an automatic AC returns to the auto fan, a hand-started one keeps its fan
+  // back at the target: the fan returns to quiet
   assert.equal(nextCommand(band, 25.3, st({ fan: 'med' }), T0 + TRIM_AFTER + 1), null);
   assert.deepEqual(nextCommand(band, 25.0, st({ fan: 'med' }), T0 + TRIM_AFTER + 1), { action: 'cool', target: 24, fan: 'quiet' });
   // 2026-11-21 21:28: range 24-25.5, room back in at 25.2 with the setpoint at 18 -> trim floor 22, not the normal 25
-  assert.deepEqual(nextCommand({ tMin: 24, tMax: 25.5 }, 25.22, st({ target: 18, source: 'manual' }), T0 + 1000), { action: 'cool', target: 22, fan: 'quiet', source: 'manual' });
-  assert.equal(nextCommand(band, 25.0, st({ fan: 'med', source: 'manual' }), T0 + TRIM_AFTER + 1), null);
-});
-
-test('an automatic AC left at fan high goes back to fan auto at once, keeping its setpoint', () => {
-  assert.deepEqual(nextCommand(band, 26.0, st({ target: 18, fan: 'high' }), T0 + 1000), { action: 'cool', target: 18, fan: 'quiet' });
-  assert.deepEqual(nextCommand(band, 25.0, st({ target: 22, fan: 'high' }), T0 + 1000), { action: 'cool', target: 22, fan: 'quiet' });
-  assert.deepEqual(nextCommand(band, 25.0, st({ source: 'manual', target: 18, fan: 'high' }), T0 + 1000), { action: 'cool', target: 22, fan: 'high', source: 'manual' });
-  assert.equal(nextCommand(band, 25.0, st({ source: 'manual', fan: 'high' }), T0 + 1000), null);
+  assert.deepEqual(nextCommand({ tMin: 24, tMax: 25.5 }, 25.22, st({ target: 18, source: 'manual' }), T0 + MIN_GAP + 1), { action: 'cool', target: 22, fan: 'quiet' });
 });
 
 test('a new comfort range is applied to the AC at once', () => {
@@ -120,7 +137,7 @@ test('a new comfort range is applied to the AC at once', () => {
   // running automatic AC: new setpoint, fan auto
   assert.deepEqual(rangeCommand(auto, 23.8, st()), { action: 'cool', target: 22, fan: 'quiet' });
   assert.deepEqual(rangeCommand(auto, 26.5, st()), { action: 'cool', target: 22, fan: 'quiet' });
-  assert.deepEqual(rangeCommand({ ...bandFor(27), auto: true }, 27.2, st({ target: 18, fan: 'high' })), { action: 'cool', target: 26, fan: 'quiet' });
+  assert.deepEqual(rangeCommand({ ...bandFor(27), auto: true }, 27.2, st({ target: 18, fan: 'high' })), { action: 'cool', target: 26, fan: 'high' });
   // with the old range known, the running setpoint moves by as much as the range did (keeps what the trim learned)
   assert.deepEqual(rangeCommand(auto, 25.0, st({ target: 22 }), bandFor(25)), { action: 'cool', target: 20, fan: 'quiet' });
   assert.deepEqual(rangeCommand({ ...bandFor(26), auto: true }, 25.0, st({ target: 22 }), bandFor(25)), { action: 'cool', target: 23, fan: 'quiet' });
@@ -137,27 +154,22 @@ test('a new comfort range is applied to the AC at once', () => {
 });
 
 test('well above the range it drops straight to the trim floor, even right after a command (the 02:20 screenshot)', () => {
-  const r = { tMin: 25.5, tMax: 26.5, auto: true }; // target 26, trim floor 23
-  assert.deepEqual(nextCommand(r, 27.6, st({ source: 'manual' }), T0 + 1000), { action: 'cool', target: 23, fan: 'quiet', source: 'manual' });
-  assert.deepEqual(nextCommand(r, 27.6, st({ target: 25 }), T0 + 1000), { action: 'cool', target: 23, fan: 'quiet' });
-  assert.equal(nextCommand(r, 27.6, st({ target: 23 }), T0 + 1000), null); // then 1 degree per 20 minutes
-  assert.deepEqual(nextCommand(r, 27.6, st({ target: 23 }), T0 + STEP_GAP + 1), { action: 'cool', target: 23, fan: 'auto' });
+  const r = { tMin: 25.5, tMax: 26.5, auto: true }; // target 26, trim floor 23, hot above 27.5
+  assert.deepEqual(nextCommand(r, 27.4, st({ target: 25 }), T0 + 1000), { action: 'cool', target: 23, fan: 'quiet' });
+  assert.equal(nextCommand(r, 27.4, st({ target: 23 }), T0 + 1000), null); // then 1 degree per 20 minutes
+  assert.deepEqual(nextCommand(r, 27.4, st({ target: 23 }), T0 + STEP_GAP + 1), { action: 'cool', target: 23, fan: 'auto' });
+  assert.deepEqual(nextCommand(r, 27.6, st({ target: 25 }), T0 + 1000), { action: 'cool', target: 21, fan: 'high' });
 });
 
-test('quiet or auto fan: 2 minutes after the command, a room that has not dropped 0.1 degree gets the next fan step', () => {
-  // room above target + 0.5, unchanged since the command
-  assert.equal(nextCommand(band, 25.8, st({ temp: 25.8 }), T0 + FAN_CHECK - 1), null);
-  assert.deepEqual(nextCommand(band, 25.8, st({ temp: 25.8 }), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'auto' });
-  assert.deepEqual(nextCommand(band, 25.75, st({ temp: 25.8 }), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'auto' });
-  assert.deepEqual(nextCommand(band, 25.8, st({ fan: 'auto', temp: 25.8 }), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'low' });
-  // cooling: keep auto
-  assert.equal(nextCommand(band, 25.7, st({ temp: 25.8 }), T0 + FAN_CHECK + 1), null);
-  // near the target the AC may idle on purpose: keep auto
-  assert.equal(nextCommand(band, 25.4, st({ temp: 25.4 }), T0 + FAN_CHECK + 1), null);
-  // only from quiet and auto; low -> medium still waits 10 minutes above the range
+test('auto fan: 2 minutes after the command, a room that has not dropped 0.1 degree gets the low fan; quiet is not rushed', () => {
+  const auto = over => st({ fan: 'auto', temp: 25.8, ...over });
+  assert.equal(nextCommand(band, 25.8, auto(), T0 + FAN_CHECK - 1), null);
+  assert.deepEqual(nextCommand(band, 25.8, auto(), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'low' });
+  assert.deepEqual(nextCommand(band, 25.75, auto(), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'low' });
+  assert.equal(nextCommand(band, 25.7, auto(), T0 + FAN_CHECK + 1), null); // cooling
+  assert.equal(nextCommand(band, 25.4, auto({ temp: 25.4 }), T0 + FAN_CHECK + 1), null); // near the target the AC may idle
+  assert.equal(nextCommand(band, 25.8, auto({ temp: undefined }), T0 + FAN_CHECK + 1), null); // unknown: 20-minute rule only
+  // quiet always blows: only the 20-minute rule above the range steps it (2026-11-25: quiet -> low in 6 minutes)
+  assert.equal(nextCommand(band, 25.8, st({ temp: 25.8 }), T0 + FAN_CHECK + 1), null);
   assert.equal(nextCommand(band, 25.8, st({ fan: 'low', temp: 25.8 }), T0 + FAN_CHECK + 1), null);
-  // hand-started AC stays hand-started
-  assert.deepEqual(nextCommand(band, 25.8, st({ source: 'manual', temp: 25.9 }), T0 + FAN_CHECK + 1), { action: 'cool', target: 24, fan: 'auto', source: 'manual' });
-  // no temperature known for the command: old 10-minute rule only
-  assert.equal(nextCommand(band, 25.8, st(), T0 + FAN_CHECK + 1), null);
 });

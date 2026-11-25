@@ -39,7 +39,7 @@ function setup(profile) {
 const post = (env, body) => worker.fetch(new Request('https://x.test/api/ac', { method: 'POST', headers: { 'x-key': 'k', 'content-type': 'application/json' }, body: JSON.stringify(body) }), env);
 const settings = DB => JSON.parse(DB.db.prepare('SELECT settings FROM profile WHERE id = 1').get().settings);
 
-test('a hand-set target moves the comfort range to target -1/+1 and keeps other settings', async () => {
+test('a hand-set target leaves the comfort range alone (it is a shortcut into the range, not a new range)', async () => {
   const { env, DB } = setup({ tMin: 23, tMax: 26, hMin: 40, hMax: 70, auto: false });
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ event: {} });
@@ -47,7 +47,7 @@ test('a hand-set target moves the comfort range to target -1/+1 and keeps other 
     const res = await post(env, { action: 'cool', target: '25', fan: 'auto', auto: 'true' });
     assert.equal(res.status, 200);
   } finally { globalThis.fetch = realFetch; }
-  assert.deepEqual(settings(DB), { tMin: 24, tMax: 26, hMin: 40, hMax: 70, auto: true });
+  assert.deepEqual(settings(DB), { tMin: 23, tMax: 26, hMin: 40, hMax: 70, auto: true });
   const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
   assert.deepEqual({ ...state }, { power: 'on', target: 25, fan: 'auto', source: 'manual', ok: 1 });
   const logged = DB.db.prepare('SELECT action, target, fan, source, ok FROM ac_log ORDER BY rowid').all().map(r => ({ ...r }));
@@ -169,11 +169,11 @@ test('history carries the AC log for the range plus the entry before it; automat
   assert.equal(d.samples.length, 1);
   assert.equal('hourly' in d, false);
 
-  // a hand-started AC that the automation re-sends: state stays manual, the log says auto
+  // a hand-started AC in the range: the automation takes over, so its re-send is its own
   DB.db.prepare("INSERT INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, 'on', 25, 'auto', ?, 'manual', 1)").run(now - 31 * 60000);
   DB.db.prepare('DELETE FROM samples').run();
   await withNet({ fail: false }, async () => { assert.equal((await poll(env)).saved, true); });
-  assert.equal(DB.db.prepare('SELECT source FROM ac_state').get().source, 'manual');
+  assert.equal(DB.db.prepare('SELECT source FROM ac_state').get().source, 'auto');
   const last = DB.db.prepare('SELECT action, target, source FROM ac_log ORDER BY at DESC LIMIT 1').get();
   assert.deepEqual({ ...last }, { action: 'cool', target: 25, source: 'auto' });
 });

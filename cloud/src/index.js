@@ -1,5 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
-import { FANS, FAN_LABEL, bandFor, nextCommand, rangeCommand } from '../public/policy.js';
+import { FANS, FAN_LABEL, nextCommand, rangeCommand } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 const json = (body, status = 200) => Response.json(body, { status, headers });
@@ -334,9 +334,9 @@ export default {
           : body.action === 'cool' && !(Number.isInteger(body.target) && body.target >= 18 && body.target <= 30) ? `target=${JSON.stringify(body.target)}`
           : body.action === 'cool' && !FANS.includes(body.fan) ? `fan=${JSON.stringify(body.fan)}` : null;
         if (bad) return json({ error: 'invalid', field: bad }, 400);
+        // A hand-set command is a shortcut into the range and leaves the range alone; the automation takes over again
+        // once the room is in the range (public/policy.js, MANUAL_HOLD).
         const result = await sendAc(env, body.action, body.target, body.fan, 'manual');
-        // A hand-set target also moves the comfort range to target -1/+1; the range can still be edited afterwards.
-        if (result.ok && body.action === 'cool') await patchProfile(env, bandFor(body.target));
         return json(result, result.ok ? 200 : 502);
       }
     }

@@ -262,7 +262,7 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
 <p class="foot" data-i18n="foot"></p>
 </main>
 <script type="module">
-import { plan, describe, setpoint, roomTarget, bandFor, DEAD, FAN_LABELS } from '/policy.js';
+import { plan, describe, setpoint, roomTarget, DEAD, FAN_LABELS } from '/policy.js';
 import { I18N, LANGS } from '/i18n.js';
 import { view } from '/history.js';
 
@@ -364,8 +364,7 @@ function renderAc() {
   $('tv').textContent = want.target + '°';
   $('minus').disabled = want.target <= 18; $('plus').disabled = want.target >= 30;
   document.querySelectorAll('#fans button').forEach(b => b.classList.toggle('on', b.dataset.fan === want.fan));
-  const b = bandFor(want.target);
-  $('hint').textContent = want.dirty && (b.tMin !== cfg.tMin || b.tMax !== cfg.tMax) ? t('bandHint', b.tMin, b.tMax) : '';
+  $('hint').textContent = want.dirty && cfg.auto ? t('manualHint') : '';
   $('acon').textContent = on ? t('apply') : t('acon');
   $('acon').disabled = $('acoff').disabled = busy;
   $('acmsg').textContent = acMsg ? t(acMsg) : '';
