@@ -76,6 +76,9 @@ test('a hand-set command is left alone for 10 minutes and while the room is abov
   assert.equal(nextCommand(band, 28.0, st({ source: 'manual' }), T0 + 1000), null);
   // an hour on, still above the range: the automation takes over (hot room -> hot-room pull-down)
   assert.deepEqual(nextCommand(band, 28.0, st({ source: 'manual' }), T0 + MANUAL_HOLD + 1), { action: 'cool', target: 20, fan: 'high' });
+  // a hand-set setting weaker than the trim ceiling is held only 10 minutes (2026-11-25 18:56: 26, room 26.4-27.7 for an hour)
+  assert.equal(nextCommand(band, 26.4, st({ source: 'manual', target: 26, fan: 'auto' }), T0 + MIN_GAP - 1), null);
+  assert.deepEqual(nextCommand(band, 26.4, st({ source: 'manual', target: 26, fan: 'auto' }), T0 + MIN_GAP + 1), { action: 'cool', target: 24, fan: 'auto' });
   // in the range: held for 10 minutes, then back to the trim range and the low fan (2026-11-24 20:11: 23 high -> 20 at once)
   assert.equal(nextCommand(band, 25.8, hand, T0 + MIN_GAP - 1), null);
   assert.deepEqual(nextCommand(band, 25.8, hand, T0 + MIN_GAP + 1), { action: 'cool', target: 22, fan: 'low' });

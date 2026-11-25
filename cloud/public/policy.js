@@ -86,7 +86,9 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   // for up to an hour. After that the automation takes over and its commands are its own (2026-11-24 20:11: a hand-set 23
   // with the high fan moved the range to 22-24 and the AC was pulled to 20, room 22.4 for three hours).
   // (No re-send while it is held: a re-send would restart the hour.)
-  if (state.source === 'manual' && (age <= MIN_GAP || (temp > cfg.tMax && age < MANUAL_HOLD))) return null;
+  // The hour-long hold is only for a setting at least as strong as the automation's own (at or below the trim ceiling): a
+  // hand-set 26 with the range 25.2-26.2 (ceiling 25) held the room at 26.4-27.7 for an hour (2026-11-25 18:56).
+  if (state.source === 'manual' && (age <= MIN_GAP || (temp > cfg.tMax && age < MANUAL_HOLD && state.target <= hi))) return null;
   const step = FAN_STEPS.indexOf(state.fan);
   // Hot room: high fan, setpoint 2 below the trim floor (or lower if it has already been stepped down).
   if (hot && (state.fan !== BOOST_FAN || state.target > boostTarget(cfg))) return { action: 'cool', target: Math.min(state.target, boostTarget(cfg)), fan: BOOST_FAN };
@@ -149,7 +151,7 @@ export function describe(cfg, lang = 'tr') {
       + `If the room is above ${cfg.tMax}° and has not cooled ${COOLING}° in 20 minutes, the fan goes up one step (quiet -> auto -> low -> medium), then the setting goes down 1° every 20 minutes (down to 18°). `
       + `If the room goes above ${cfg.tMax + DEAD}° the AC setting drops straight to ${lo}°. `
       + `Once the room is back in the range, a setting below ${lo}° comes back up to ${lo}° at once; the fan goes back to quiet at the target. `
-      + `A setting you send by hand does not change the range: it is left alone for 10 minutes and while the room is above ${cfg.tMax}° (up to an hour), then the automation takes over. `
+      + `A setting you send by hand does not change the range: it is left alone for 10 minutes and, if it is ${hi}° or lower, while the room is above ${cfg.tMax}° (up to an hour); then the automation takes over. Switching the automation on takes over at once. `
       + `Changing the range applies the new setting to the AC at once. `
       + `Every 20 minutes, if the room is more than ${DEAD}° above the target the AC setting goes down 1°, if below it goes up 1° (between ${lo}° and ${hi}°). `
       + `Below ${cfg.tMin}° it raises the AC setting by 1° every 20 minutes, and switches off if that is not enough; it restarts at ${hi}°. Commands are re-sent every 30 minutes in case the AC missed one.`;
@@ -159,7 +161,7 @@ export function describe(cfg, lang = 'tr') {
     + `Oda ${cfg.tMax}°'nin üstündeyse ve 20 dakikada ${COOLING}° soğumadıysa fan bir basamak artar (sessiz -> otomatik -> düşük -> orta), sonra klima ayarı 20 dakikada bir 1° düşer (18°'ye kadar). `
     + `Oda ${cfg.tMax + DEAD}°'yi geçerse klima ayarı hemen ${lo}°'ye iner. `
     + `Oda aralığa geri girince ${lo}°'nin altındaki ayar hemen ${lo}°'ye çıkar; oda hedefe inince fan sessize döner. `
-    + `Elle gönderdiğin ayar aralığı değiştirmez: 10 dakika ve oda ${cfg.tMax}°'nin üstünde kaldıkça (en fazla 1 saat) ona dokunulmaz, sonra otomatik kontrol devralır. `
+    + `Elle gönderdiğin ayar aralığı değiştirmez: 10 dakika, ayar ${hi}° ya da altındaysa oda ${cfg.tMax}°'nin üstünde kaldıkça (en fazla 1 saat) ona dokunulmaz, sonra otomatik kontrol devralır. Otomatiği açınca hemen devralır. `
     + `Aralığı değiştirince yeni ayar klimaya hemen gönderilir. `
     + `20 dakikada bir oda hedefin ${DEAD}°'den fazla üstündeyse klima ayarı 1° düşer, altındaysa 1° artar (${lo}°-${hi}° arası). `
     + `${cfg.tMin}°'nin altına inerse klima ayarı 20 dakikada bir 1° artar, yetmezse kapanır; tekrar ${hi}°'den açılır. Klima bir komutu kaçırırsa diye 30 dakikada bir yeniden gönderilir.`;

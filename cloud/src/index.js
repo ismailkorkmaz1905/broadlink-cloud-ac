@@ -327,6 +327,8 @@ export default {
         if (auto !== undefined && typeof auto !== 'boolean') return json({ error: 'invalid', field: 'auto' }, 400);
         if (auto !== undefined) {
           await patchProfile(env, { auto });
+          // Switching the automation on ends a hand-set hold: the next poll applies the automation's own rules.
+          if (auto) await env.DB.prepare("UPDATE ac_state SET source = 'auto' WHERE id = 1 AND source = 'manual'").run();
           await log(env, auto ? 'auto_on' : 'auto_off', null, null, 'manual', 1);
           if (body.action === undefined) return json({ ok: true, auto });
         }
