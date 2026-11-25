@@ -1,4 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
+import { broadlinkToRaw } from '../../lib/ir.js';
 import { FANS, FAN_LABEL, nextCommand, rangeCommand } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
@@ -30,6 +31,15 @@ async function log(env, action, target, fan, source, ok, temp) {
   await env.DB.prepare('INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), action, target ?? null, fan ?? null, source, ok, temp).run();
 }
 
+// Which device does the sensor reading and IR sending: 'broadlink' (RM4 via the BroadLink cloud, default) or 'esp' (Atom Lite, POST /api/device).
+// Stored in D1 so it can be flipped without a deploy (POST /api/backend).
+async function backend(env) {
+  try {
+    await diagTables(env);
+    return (await env.DB.prepare("SELECT v FROM kv WHERE k = 'backend'").first())?.v === 'esp' ? 'esp' : 'broadlink';
+  } catch { return 'broadlink'; }
+}
+
 // `source` is the mode stored on ac_state ('manual' = started by a person); `by` is who sent this command, for the log.
 async function sendAc(env, action, target, fan, source, temp, by = source) {
   const name = action === 'off' ? 'off' : `cool_${target}_${fan}`;
@@ -37,11 +47,22 @@ async function sendAc(env, action, target, fan, source, temp, by = source) {
   if (!row) return { ok: false, error: 'no_code' };
   const prev = await env.DB.prepare('SELECT power, ok FROM ac_state WHERE id = 1').first();
   let ok = 1, reply = null;
-  try { reply = (await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code)).reply; } catch (e) { ok = 0; reply = e?.reply ?? e?.message ?? null; }
-  // Every IR send and the cloud's reply go to the diagnostics list (GET /api/diag), reason 'ir_sent' or 'ir_failed'.
+  const esp = await backend(env) === 'esp';
+  if (esp) {
+    // The ESP32 picks the command up on its next report (every ~15 s); only the newest command matters.
+    try {
+      await env.DB.prepare("UPDATE ir_queue SET status = 'superseded' WHERE status IN ('pending', 'sent')").run();
+      await env.DB.prepare("INSERT INTO ir_queue (name, code, at, status) VALUES (?, ?, ?, 'pending')").bind(name, row.code, Date.now()).run();
+      reply = 'queued';
+    } catch (e) { ok = 0; reply = e?.message ?? null; }
+  } else {
+    try { reply = (await sendIrCommand(JSON.parse(env.BROADLINK_SESSION), row.code)).reply; } catch (e) { ok = 0; reply = e?.reply ?? e?.message ?? null; }
+  }
+  // Every IR send and the cloud's reply go to the diagnostics list (GET /api/diag), reason 'ir_sent' or 'ir_failed'
+  // ('ir_queued' for the ESP32; its ack later adds 'ir_sent').
   try {
     await diagTables(env);
-    await env.DB.prepare('INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, ?, ?, ?)').bind(Date.now(), ok ? 'ir_sent' : 'ir_failed', name, reply).run();
+    await env.DB.prepare('INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, ?, ?, ?)').bind(Date.now(), ok ? (esp ? 'ir_queued' : 'ir_sent') : 'ir_failed', name, reply).run();
   } catch { /* diagnostics only */ }
   // An off state keeps the last setpoint (if given), so the automation can restart from what it learned.
   await env.DB.prepare('INSERT OR REPLACE INTO ac_state (id, power, target, fan, at, source, ok) VALUES (1, ?, ?, ?, ?, ?, ?)').bind(action === 'off' ? 'off' : 'on', target ?? null, action === 'off' ? null : fan, Date.now(), source, ok).run();
@@ -81,6 +102,8 @@ const DIAG_SCHEMA = [
   'CREATE TABLE IF NOT EXISTS sensor_errors (at INTEGER NOT NULL, reason TEXT NOT NULL, raw TEXT, detail TEXT)',
   'CREATE INDEX IF NOT EXISTS sensor_errors_at ON sensor_errors (at)',
   'CREATE TABLE IF NOT EXISTS sensor_gaps (started INTEGER PRIMARY KEY, ended INTEGER, reads INTEGER NOT NULL, zero_reads INTEGER NOT NULL, reason TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS ir_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, code TEXT NOT NULL, at INTEGER NOT NULL, status TEXT NOT NULL)',
 ];
 let diagReady = false;
 async function diagTables(env) {
@@ -124,9 +147,40 @@ async function checkStuck(env, sample) {
   await notify(env, 'Sensör şüpheli', `Klima 45 dakikadır ${state.target}° soğutuyor ama oda hâlâ ${sample.temperature.toFixed(1)}° ve düşmüyor. HTS2 takılmış olabilir (kablosunu çıkarıp tak) ya da klima komutu almamış.`, ['warning']);
 }
 
+// A good reading, from either backend: bookkeeping, recovery notice, automation, stuck-sensor check.
+async function accept(env, s, now, prev, who) {
+  await env.DB.prepare('INSERT OR IGNORE INTO samples (at, temperature, humidity) VALUES (?, ?, ?)').bind(s.at, s.temperature, s.humidity).run();
+  await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 1)').bind(now).run();
+  let gap = null;
+  try { gap = await closeGap(env, now); } catch { /* diagnostics only */ }
+  const took = gap ? ` ${gap.minutes} dk sürdü, ${gap.reads} başarısız okuma (${gap.zero_reads} tanesi 0 °C / %0).` : '';
+  if (prev?.ok === 0) await notify(env, 'Sensör geri geldi', `${who} okuması yeniden çalışıyor.${took}`, ['white_check_mark']);
+  try { await control(env, s); } catch { /* sensor logging must not fail because of control */ }
+  try { await checkStuck(env, s); } catch { /* diagnostics only */ }
+}
+
+// ESP32 mode: the cron does not read anything, it only expires commands the device never picked up and watches for silence.
+async function pollDevice(env, now) {
+  const stale = await env.DB.prepare("SELECT id, name FROM ir_queue WHERE status IN ('pending', 'sent') AND at < ?").bind(now - 5 * 60000).all();
+  for (const r of stale.results) {
+    await env.DB.prepare("UPDATE ir_queue SET status = 'expired' WHERE id = ?").bind(r.id).run();
+    await env.DB.prepare("INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, 'ir_failed', ?, 'device did not ack within 5 min')").bind(now, r.name).run();
+    await notify(env, 'Klima komutu gitmedi', 'Atom Lite komutu 5 dakikada almadı/onaylamadı.', ['warning']);
+  }
+  const last = await env.DB.prepare('SELECT at FROM samples ORDER BY at DESC LIMIT 1').first();
+  const prev = await env.DB.prepare('SELECT ok FROM status WHERE id = 1').first();
+  const down = !last || now - last.at > 4 * 60000;
+  if (down) {
+    await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 0)').bind(now).run();
+    if (prev?.ok !== 0) await notify(env, 'Sensör okunamıyor', 'Atom Lite 4 dakikadır sıcaklık göndermiyor: elektriği, USB adaptörü ve Wi-Fi bağlantısını kontrol et.', ['rotating_light']);
+  }
+  return { saved: false, backend: 'esp' };
+}
+
 async function poll(env) {
   const now = Date.now();
   try { await diagTables(env); } catch { /* diagnostics must not stop the reading */ }
+  if (await backend(env) === 'esp') return pollDevice(env, now);
   const latest = () => env.DB.prepare('SELECT at, temperature, humidity FROM samples ORDER BY at DESC LIMIT 1').first();
   let last = await latest();
   // Older versions stored the RM4's "no reading" reply as 0 °C / 0 %. Drop those rows so the page falls back to the last real reading.
@@ -138,14 +192,7 @@ async function poll(env) {
   const prev = await env.DB.prepare('SELECT ok FROM status WHERE id = 1').first();
   try {
     const s = await readCloudSensor(JSON.parse(env.BROADLINK_SESSION));
-    await env.DB.prepare('INSERT OR IGNORE INTO samples (at, temperature, humidity) VALUES (?, ?, ?)').bind(s.at, s.temperature, s.humidity).run();
-    await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 1)').bind(now).run();
-    let gap = null;
-    try { gap = await closeGap(env, now); } catch { /* diagnostics only */ }
-    const took = gap ? ` ${gap.minutes} dk sürdü, ${gap.reads} başarısız okuma (${gap.zero_reads} tanesi 0 °C / %0).` : '';
-    if (prev?.ok === 0) await notify(env, 'Sensör geri geldi', `BroadLink bulutundan okuma yeniden çalışıyor.${took}`, ['white_check_mark']);
-    try { await control(env, s); } catch { /* sensor logging must not fail because of control */ }
-    try { await checkStuck(env, s); } catch { /* diagnostics only */ }
+    await accept(env, s, now, prev, 'BroadLink bulutundan');
     return { saved: true };
   } catch (e) {
     try { await logReadError(env, now, e); } catch { /* diagnostics only */ }
@@ -174,6 +221,8 @@ async function diag(url, env) {
   const out = {
     gaps: gaps.results.map(g => ({ ...g, open: g.ended === null, seconds: Math.round(((g.ended ?? now) - g.started) / 1000) })),
     errors: errors.results,
+    backend: await backend(env),
+    device: JSON.parse((await env.DB.prepare("SELECT v FROM kv WHERE k = 'device'").first())?.v ?? 'null'),
   };
   if (url.searchParams.get('probe') === '1') {
     out.probe = [];
@@ -277,6 +326,63 @@ async function outdoorTemp(env) {
   } catch { /* weather is best effort */ }
 }
 
+// POST /api/device (Atom Lite, header x-device-key): body {t, h, ack, rssi, fw, up, err}. Always answers with the newest unacked IR command, if any:
+// {cmd: {id, name, carrier, raw}} where raw is signed microseconds (mark +, space -). IR commands are absolute, so redelivery until the ack is harmless.
+// While the backend is still 'broadlink' the report is only remembered (GET /api/diag shows it), so the device can be tested before the switch.
+async function device(request, env) {
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+  const now = Date.now();
+  await diagTables(env);
+  const esp = await backend(env) === 'esp';
+  const t = Number(body?.t), h = Number(body?.h);
+  const good = body?.t != null && body?.h != null && Number.isFinite(t) && Number.isFinite(h) && t > -20 && t < 70 && h >= 0 && h <= 100 && !(t === 0 && h === 0);
+  await env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('device', ?)").bind(JSON.stringify({ at: now, t: good ? t : null, h: good ? h : null, rssi: body?.rssi ?? null, fw: body?.fw ?? null, up: body?.up ?? null, err: body?.err ?? null })).run();
+  if (Number.isInteger(body?.ack)) {
+    const q = await env.DB.prepare("SELECT id, name FROM ir_queue WHERE id = ? AND status IN ('pending', 'sent')").bind(body.ack).first();
+    if (q) {
+      await env.DB.prepare("UPDATE ir_queue SET status = 'acked' WHERE id = ?").bind(q.id).run();
+      await env.DB.prepare("INSERT INTO sensor_errors (at, reason, raw, detail) VALUES (?, 'ir_sent', ?, 'device ack')").bind(now, q.name).run();
+    }
+  }
+  if (esp) {
+    if (good) {
+      const last = await env.DB.prepare('SELECT at FROM samples ORDER BY at DESC LIMIT 1').first();
+      const prev = await env.DB.prepare('SELECT ok FROM status WHERE id = 1').first();
+      // One stored sample per minute like the cron did; the status and the automation still see every report.
+      if (!last || now - last.at >= 50000) await accept(env, { at: now, temperature: t, humidity: h }, now, prev, 'Atom Lite');
+      else await env.DB.prepare('INSERT OR REPLACE INTO status (id, at, ok) VALUES (1, ?, 1)').bind(now).run();
+    } else {
+      try { await logReadError(env, now, { reason: 'device_sensor', detail: String(body?.err ?? 'bad value').slice(0, 200) }); } catch { /* diagnostics only */ }
+    }
+  }
+  let cmd = null;
+  if (esp) {
+    const q = await env.DB.prepare("SELECT id, name, code FROM ir_queue WHERE status IN ('pending', 'sent') AND at >= ? ORDER BY id DESC LIMIT 1").bind(now - 5 * 60000).first();
+    if (q) {
+      await env.DB.prepare("UPDATE ir_queue SET status = 'sent' WHERE id = ?").bind(q.id).run();
+      cmd = { id: q.id, name: q.name, carrier: 38000, raw: broadlinkToRaw(q.code) };
+    }
+  }
+  return json({ ok: true, backend: esp ? 'esp' : 'broadlink', cmd });
+}
+
+// GET /api/backend, POST {mode: 'esp' | 'broadlink'} (x-key only). Switching back is instant; the other backend's data and secrets stay as they are.
+async function backendRoute(request, env, keyed) {
+  await diagTables(env);
+  if (request.method === 'POST') {
+    if (!keyed) return json({ error: 'forbidden' }, 403);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+    if (!['esp', 'broadlink'].includes(body?.mode)) return json({ error: 'invalid', field: 'mode' }, 400);
+    await env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('backend', ?)").bind(body.mode).run();
+    await log(env, `backend_${body.mode}`, null, null, 'manual', 1);
+  } else if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
+  const dev = await env.DB.prepare("SELECT v FROM kv WHERE k = 'device'").first();
+  return json({ mode: await backend(env), device: dev ? JSON.parse(dev.v) : null });
+}
+
 const READ_ONLY = ['/api/version', '/api/state', '/api/sensor', '/api/diag'];
 
 export default {
@@ -307,7 +413,14 @@ export default {
       if (url.pathname === '/api/sensor') return sensor(url, env);
       return diag(url, env);
     }
+    if (url.pathname === '/api/device') {
+      // The device has its own key (secret DEVICE_KEY); until that is set, VIEW_KEY works too.
+      const dk = request.headers.get('x-device-key');
+      if (!await equal(env.DEVICE_KEY ?? env.VIEW_KEY, dk)) return json({ error: 'unauthorized' }, 401);
+      return device(request, env);
+    }
     if (!authorized) return json({ error: 'unauthorized' }, 401);
+    if (url.pathname === '/api/backend') return backendRoute(request, env, keyed);
     if (url.pathname === '/api/version') return json({ version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local' });
     if (url.pathname === '/api/state') return state(env);
     if (url.pathname === '/api/sensor') return sensor(url, env);

@@ -80,3 +80,7 @@ While a gap is open:
 2. Send an IR command from the dashboard (if the AC is on, resend the same setting). If the AC reacts, the RM4 is not frozen.
 3. Unplug and replug the HTS2 cable, probe again a minute later. If it recovers, it was the cable or sensor.
 4. Otherwise cut the RM4's power for 10 s. If the next read closes the gap, the RM4 was frozen; `sensor_gaps.ended` lines up with the power cut.
+## ESP32 (Atom Lite) arka ucu
+
+Sensor okuma ve IR gonderme BroadLink bulutu yerine Atom Lite uzerinden de yapilabilir (`firmware/atom-lite/`). Hangisinin aktif oldugu D1'deki `kv.backend` degeridir (varsayilan `broadlink`); `GET/POST /api/backend` (`x-key`) ile degisir, deploy gerekmez. Cihaz `POST /api/device` (`x-device-key: DEVICE_KEY`, yoksa `VIEW_KEY`) ile `{t,h,ack,rssi,up,fw,err}` yollar, cevapta `{cmd:{id,name,carrier,raw}}` alir. `esp` modunda cron okuma yapmaz, sadece cihaz sessizligini (4 dk) ve onaylanmayan komutlari (5 dk) izler. `broadlink` modundayken cihaz raporlari sadece kaydedilir.
+
