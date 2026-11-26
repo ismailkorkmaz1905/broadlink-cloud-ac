@@ -72,6 +72,21 @@ remote_transmitter:
   carrier_duty_percent: 50%
   non_blocking: true
 
+# Hardware test, independent of the Worker: press the button on the Atom (side facing you, GPIO39) to send the "off" code
+# once. If the AC does not react to this at 3-5 cm, the IR LED or wiring is the problem, not the software.
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO39
+      inverted: true
+    name: IR test button
+    internal: true
+    on_press:
+      - logger.log: "IR test: sending off"
+      - remote_transmitter.transmit_raw:
+          carrier_frequency: 38kHz
+          code: [3448, -1839, 427, -394, 427, -394, 427, -1346, 427, -394, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -394, 427, -1346, 427, -394, 427, -1346, 427, -1346, 427, -1346, 427, -1346, 427, -1346, 427, -1346, 460]
+
 light:
   - platform: esp32_rmt_led_strip
     id: status_led
