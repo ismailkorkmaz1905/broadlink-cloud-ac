@@ -185,9 +185,6 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
     <div class="row"><div class="stat-label" data-i18n="orderTitle">Kart sırası</div><ul class="order" id="order"></ul></div>
     <div class="row"><div class="stat-label" data-i18n="themeTitle">Görünüm</div>
       <div class="seg" id="themes"><button type="button" data-th="auto" data-i18n="thAuto">Otomatik</button><button type="button" data-th="light" data-i18n="thLight">Açık</button><button type="button" data-th="dark" data-i18n="thDark">Koyu</button></div></div>
-    <div class="row"><div class="stat-label" data-i18n="srcTitle">Sensör ve klima kaynağı</div>
-      <div class="seg" id="backends"><button type="button" data-be="broadlink">BroadLink</button><button type="button" data-be="hybrid" data-i18n="beHybrid">Atom + RM4</button><button type="button" data-be="esp">Atom Lite</button></div>
-      <div class="hint" id="bemsg"></div></div>
   </div>
 </section>
 
@@ -262,7 +259,7 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
 </section>
 </div>
 <p class="foot mono" id="ver"></p>
-<p class="foot" id="foot"></p>
+<p class="foot" data-i18n="foot"></p>
 </main>
 <script type="module">
 import { plan, describe, setpoint, roomTarget, DEAD, FAN_LABELS } from '/policy.js';
@@ -279,7 +276,7 @@ const level = (v, lo, hi, step = 1) => (v >= lo && v <= hi ? 'ok' : (v < lo ? lo
 // ---- state ----
 let lang = 'tr', range = '6s';
 let cfg = { tMin: 23, tMax: 26, hMin: 40, hMax: 60, auto: false };
-let sample = null, hour = null, before = null, acState = null, ver = null, be = { mode: 'broadlink', device: null }, beMsg = '';
+let sample = null, hour = null, before = null, acState = null, ver = null;
 let pts = [], logRows = [], histAt = 0;
 let want = { target: null, fan: 'auto', dirty: false };
 let acMsg = null, cfgMsg = null, busy = false, cfgLoaded = false;
@@ -516,21 +513,7 @@ function renderCfg(fill) {
   $('cfgmsg').textContent = cfgMsg ? t(...[].concat(cfgMsg)) : '';
 }
 function renderVer() { $('ver').textContent = ver ? `${t('version')} ${ver.version} · ${ver.build}` : ''; }
-function renderBackend() {
-  $('foot').textContent = t(be.mode === 'broadlink' ? 'foot' : be.mode === 'hybrid' ? 'footHybrid' : 'footEsp');
-  document.querySelectorAll('#backends button').forEach(b => b.classList.toggle('on', b.dataset.be === be.mode));
-  const d = be.device;
-  $('bemsg').textContent = beMsg || (d ? t('beDev', when(d.at), d.t == null ? '--' : num(d.t), d.h == null ? '--' : Math.round(d.h)) : t('beNone'));
-}
-$('backends').onclick = async e => {
-  const b = e.target.closest('button'); if (!b || b.dataset.be === be.mode) return;
-  const mode = b.dataset.be;
-  if (mode !== 'broadlink' && (!be.device || Date.now() - be.device.at > 120000)) { beMsg = t(be.device ? 'beOld' : 'beNone'); renderBackend(); return; }
-  beMsg = t('beSwitching'); renderBackend();
-  try { be = { ...be, mode: (await post('/api/backend', { mode })).mode }; beMsg = ''; } catch { beMsg = t('beFail'); }
-  renderBackend(); loadState();
-};
-function renderAll() { renderRoom(); renderAc(); renderCfg(false); renderVer(); renderBackend(); }
+function renderAll() { renderRoom(); renderAc(); renderCfg(false); renderVer(); }
 
 const CARDS = ['control', 'history'];
 let order = (() => {
@@ -590,7 +573,6 @@ async function loadState() {
     const d = await api('/api/state');
     const bandMoved = d.profile && (d.profile.tMin !== cfg.tMin || d.profile.tMax !== cfg.tMax || d.profile.hMin !== cfg.hMin || d.profile.hMax !== cfg.hMax);
     sample = d.sample; hour = d.hour; before = d.before; acState = d.state; ver = { version: d.version, build: d.build };
-    if (d.backend) be = { mode: d.backend, device: d.device };
     if (d.profile) cfg = { ...cfg, ...d.profile };
     renderAll();
     if (bandMoved || !cfgLoaded) { cfgLoaded = true; renderCfg(true); }
