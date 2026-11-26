@@ -70,6 +70,7 @@ remote_transmitter:
   id: ir_tx
   pin: GPIO12
   carrier_duty_percent: 50%
+  non_blocking: true
 
 light:
   - platform: esp32_rmt_led_strip
@@ -78,7 +79,7 @@ light:
     pin: GPIO27
     num_leds: 1
     chipset: SK6812
-    rgb_order: GRB
+    channel_colors: GRB
     default_transition_length: 0s
 
 globals:
