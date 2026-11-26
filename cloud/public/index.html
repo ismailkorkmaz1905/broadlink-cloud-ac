@@ -262,7 +262,7 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
 </section>
 </div>
 <p class="foot mono" id="ver"></p>
-<p class="foot" data-i18n="foot"></p>
+<p class="foot" id="foot"></p>
 </main>
 <script type="module">
 import { plan, describe, setpoint, roomTarget, DEAD, FAN_LABELS } from '/policy.js';
@@ -517,6 +517,7 @@ function renderCfg(fill) {
 }
 function renderVer() { $('ver').textContent = ver ? `${t('version')} ${ver.version} · ${ver.build}` : ''; }
 function renderBackend() {
+  $('foot').textContent = t(be.mode === 'esp' ? 'footEsp' : 'foot');
   document.querySelectorAll('#backends button').forEach(b => b.classList.toggle('on', b.dataset.be === be.mode));
   const d = be.device;
   $('bemsg').textContent = beMsg || (d ? t('beDev', when(d.at), d.t == null ? '--' : num(d.t), d.h == null ? '--' : Math.round(d.h)) : t('beNone'));
