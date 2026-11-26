@@ -186,7 +186,7 @@ details.how p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
     <div class="row"><div class="stat-label" data-i18n="themeTitle">Görünüm</div>
       <div class="seg" id="themes"><button type="button" data-th="auto" data-i18n="thAuto">Otomatik</button><button type="button" data-th="light" data-i18n="thLight">Açık</button><button type="button" data-th="dark" data-i18n="thDark">Koyu</button></div></div>
     <div class="row"><div class="stat-label" data-i18n="srcTitle">Sensör ve klima kaynağı</div>
-      <div class="seg" id="backends"><button type="button" data-be="broadlink">BroadLink</button><button type="button" data-be="esp">Atom Lite</button></div>
+      <div class="seg" id="backends"><button type="button" data-be="broadlink">BroadLink</button><button type="button" data-be="hybrid" data-i18n="beHybrid">Atom + RM4</button><button type="button" data-be="esp">Atom Lite</button></div>
       <div class="hint" id="bemsg"></div></div>
   </div>
 </section>
@@ -517,7 +517,7 @@ function renderCfg(fill) {
 }
 function renderVer() { $('ver').textContent = ver ? `${t('version')} ${ver.version} · ${ver.build}` : ''; }
 function renderBackend() {
-  $('foot').textContent = t(be.mode === 'esp' ? 'footEsp' : 'foot');
+  $('foot').textContent = t(be.mode === 'broadlink' ? 'foot' : be.mode === 'hybrid' ? 'footHybrid' : 'footEsp');
   document.querySelectorAll('#backends button').forEach(b => b.classList.toggle('on', b.dataset.be === be.mode));
   const d = be.device;
   $('bemsg').textContent = beMsg || (d ? t('beDev', when(d.at), d.t == null ? '--' : num(d.t), d.h == null ? '--' : Math.round(d.h)) : t('beNone'));
@@ -525,7 +525,7 @@ function renderBackend() {
 $('backends').onclick = async e => {
   const b = e.target.closest('button'); if (!b || b.dataset.be === be.mode) return;
   const mode = b.dataset.be;
-  if (mode === 'esp' && (!be.device || Date.now() - be.device.at > 120000)) { beMsg = t(be.device ? 'beOld' : 'beNone'); renderBackend(); return; }
+  if (mode !== 'broadlink' && (!be.device || Date.now() - be.device.at > 120000)) { beMsg = t(be.device ? 'beOld' : 'beNone'); renderBackend(); return; }
   beMsg = t('beSwitching'); renderBackend();
   try { be = { ...be, mode: (await post('/api/backend', { mode })).mode }; beMsg = ''; } catch { beMsg = t('beFail'); }
   renderBackend(); loadState();

@@ -31,12 +31,14 @@ async function log(env, action, target, fan, source, ok, temp) {
   await env.DB.prepare('INSERT INTO ac_log (at, action, target, fan, source, ok, temperature) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), action, target ?? null, fan ?? null, source, ok, temp).run();
 }
 
-// Which device does the sensor reading and IR sending: 'broadlink' (RM4 via the BroadLink cloud, default) or 'esp' (Atom Lite, POST /api/device).
+// Which device does the sensor reading and IR sending: 'broadlink' (RM4 via the BroadLink cloud, default), 'esp' (Atom Lite for both, POST /api/device)
+// or 'hybrid' (temperature from the Atom Lite, IR still sent through the RM4).
 // Stored in D1 so it can be flipped without a deploy (POST /api/backend).
 async function backend(env) {
   try {
     await diagTables(env);
-    return (await env.DB.prepare("SELECT v FROM kv WHERE k = 'backend'").first())?.v === 'esp' ? 'esp' : 'broadlink';
+    const v = (await env.DB.prepare("SELECT v FROM kv WHERE k = 'backend'").first())?.v;
+    return v === 'esp' || v === 'hybrid' ? v : 'broadlink';
   } catch { return 'broadlink'; }
 }
 
@@ -180,7 +182,7 @@ async function pollDevice(env, now) {
 async function poll(env) {
   const now = Date.now();
   try { await diagTables(env); } catch { /* diagnostics must not stop the reading */ }
-  if (await backend(env) === 'esp') return pollDevice(env, now);
+  if (await backend(env) !== 'broadlink') return pollDevice(env, now);
   const latest = () => env.DB.prepare('SELECT at, temperature, humidity FROM samples ORDER BY at DESC LIMIT 1').first();
   let last = await latest();
   // Older versions stored the RM4's "no reading" reply as 0 °C / 0 %. Drop those rows so the page falls back to the last real reading.
@@ -338,7 +340,8 @@ async function device(request, env) {
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
   const now = Date.now();
   await diagTables(env);
-  const esp = await backend(env) === 'esp';
+  const mode = await backend(env);
+  const esp = mode !== 'broadlink'; // temperature comes from the device
   const t = Number(body?.t), h = Number(body?.h);
   const good = body?.t != null && body?.h != null && Number.isFinite(t) && Number.isFinite(h) && t > -20 && t < 70 && h >= 0 && h <= 100 && !(t === 0 && h === 0);
   await env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('device', ?)").bind(JSON.stringify({ at: now, t: good ? t : null, h: good ? h : null, rssi: body?.rssi ?? null, fw: body?.fw ?? null, up: body?.up ?? null, err: body?.err ?? null })).run();
@@ -361,17 +364,17 @@ async function device(request, env) {
     }
   }
   let cmd = null;
-  if (esp) {
+  if (mode === 'esp') {
     const q = await env.DB.prepare("SELECT id, name, code FROM ir_queue WHERE status IN ('pending', 'sent') AND at >= ? ORDER BY id DESC LIMIT 1").bind(now - 5 * 60000).first();
     if (q) {
       await env.DB.prepare("UPDATE ir_queue SET status = 'sent' WHERE id = ?").bind(q.id).run();
       cmd = { id: q.id, name: q.name, carrier: 38000, raw: broadlinkToRaw(q.code) };
     }
   }
-  return json({ ok: true, backend: esp ? 'esp' : 'broadlink', cmd });
+  return json({ ok: true, backend: mode, cmd });
 }
 
-// GET /api/backend, POST {mode: 'esp' | 'broadlink'} (x-key, or the page itself via the cookie + Origin check). Switching back is instant; the other backend's data and secrets stay as they are.
+// GET /api/backend, POST {mode: 'esp' | 'hybrid' | 'broadlink'} (x-key, or the page itself via the cookie + Origin check). Switching back is instant; the other backend's data and secrets stay as they are.
 async function backendRoute(request, env, keyed) {
   const sameOrigin = request.headers.get('origin') === new URL(request.url).origin;
   await diagTables(env);
@@ -379,7 +382,7 @@ async function backendRoute(request, env, keyed) {
     if (!keyed && !sameOrigin) return json({ error: 'forbidden' }, 403);
     let body;
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
-    if (!['esp', 'broadlink'].includes(body?.mode)) return json({ error: 'invalid', field: 'mode' }, 400);
+    if (!['esp', 'hybrid', 'broadlink'].includes(body?.mode)) return json({ error: 'invalid', field: 'mode' }, 400);
     await env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('backend', ?)").bind(body.mode).run();
     await log(env, `backend_${body.mode}`, null, null, 'manual', 1);
   } else if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);

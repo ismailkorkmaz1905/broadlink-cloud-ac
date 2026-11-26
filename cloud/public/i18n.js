@@ -31,7 +31,7 @@ export const I18N = {
     secMain: 'Oda ve klima', secHist: 'Geçmiş', roomLbl: 'Oda', rangeLbl: 'Aralık', targetK: 'Hedef', setK: 'Klima ayarı', stateK: 'Durum', nextK: 'Sıradaki', pOn: 'Açık', pOff: 'Kapalı', pFail: 'Hata',
     srcTitle: 'Sensör ve klima kaynağı', beNone: 'Atom Lite henüz rapor vermedi. Önce cihazı kur.', beOld: 'Atom Lite son 2 dakikadır rapor vermiyor, geçiş yapılmadı.', beDev: (ago, temp, hum) => `Atom Lite son rapor ${ago} · ${temp}° · %${hum}`, beFail: 'Kaynak değiştirilemedi', beSwitching: 'Değiştiriliyor...',
     settings: 'Ayarlar', orderTitle: 'Kart sırası', card_control: 'Durum ve kontrol', card_history: 'Grafik ve günlük', moveUp: 'Yukarı taşı', moveDown: 'Aşağı taşı', themeTitle: 'Görünüm', thAuto: 'Otomatik', thLight: 'Açık', thDark: 'Koyu',
-    version: 'Sürüm', foot: 'Veri BroadLink bulutundan dakikada bir okunur · Saatler Singapur saati', footEsp: 'Veri Atom Lite cihazından 15 saniyede bir gelir · Saatler Singapur saati',
+    version: 'Sürüm', foot: 'Veri BroadLink bulutundan dakikada bir okunur · Saatler Singapur saati', beHybrid: 'Atom + RM4', footHybrid: 'Sıcaklık Atom Lite cihazından 15 saniyede bir gelir, komutlar RM4 ile gider · Saatler Singapur saati', footEsp: 'Veri Atom Lite cihazından 15 saniyede bir gelir · Saatler Singapur saati',
   },
   en: {
     title: 'Room climate', h1: 'Room climate', noData: 'NO DATA', live: 'LIVE', stale: 'STALE', waiting: 'Waiting for a reading',
@@ -62,6 +62,6 @@ export const I18N = {
     secMain: 'Room and AC', secHist: 'History', roomLbl: 'Room', rangeLbl: 'Range', targetK: 'Target', setK: 'AC setting', stateK: 'State', nextK: 'Next', pOn: 'On', pOff: 'Off', pFail: 'Error',
     srcTitle: 'Sensor and AC source', beNone: 'Atom Lite has not reported yet. Set up the device first.', beOld: 'Atom Lite has not reported for 2 minutes, not switched.', beDev: (ago, temp, hum) => `Atom Lite last report ${ago} · ${temp}° · ${hum}%`, beFail: 'Could not switch source', beSwitching: 'Switching...',
     settings: 'Settings', orderTitle: 'Card order', card_control: 'Status and control', card_history: 'Chart and activity', moveUp: 'Move up', moveDown: 'Move down', themeTitle: 'Appearance', thAuto: 'Auto', thLight: 'Light', thDark: 'Dark',
-    version: 'Version', foot: 'Read from the BroadLink cloud once a minute · Times are Singapore time', footEsp: 'Reported by the Atom Lite device every 15 seconds · Times are Singapore time',
+    version: 'Version', foot: 'Read from the BroadLink cloud once a minute · Times are Singapore time', beHybrid: 'Atom + RM4', footHybrid: 'Temperature from the Atom Lite every 15 seconds, commands go through the RM4 · Times are Singapore time', footEsp: 'Reported by the Atom Lite device every 15 seconds · Times are Singapore time',
   },
 };

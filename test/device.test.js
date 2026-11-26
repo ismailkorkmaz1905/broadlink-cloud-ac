@@ -105,3 +105,28 @@ test('backend switch needs the x-key header and a valid mode', async () => {
   assert.equal((await call('/api/backend', { mode: 'x' })).status, 400);
   assert.equal((await call('/api/backend', { mode: 'esp' }, { 'x-device-key': 'd' })).status, 401);
 });
+
+test('the page can switch the backend (same-origin) and /api/state reports it', async () => {
+  const { env, call } = setup();
+  const page = (mode) => worker.fetch(new Request('https://x.test/api/backend', { method: 'POST', headers: { cookie: 'k=k', origin: 'https://x.test', 'content-type': 'application/json' }, body: JSON.stringify({ mode }) }), env);
+  assert.equal((await (await page('esp')).json()).mode, 'esp');
+  const st = await (await call('/api/state')).json();
+  assert.equal(st.backend, 'esp');
+  const cross = await worker.fetch(new Request('https://x.test/api/backend', { method: 'POST', headers: { cookie: 'k=k', origin: 'https://evil.test', 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'broadlink' }) }), env);
+  assert.equal(cross.status, 403);
+});
+
+test('hybrid: temperature comes from the device, IR still goes through BroadLink, nothing is queued', async () => {
+  const { DB, call, report } = setup();
+  await call('/api/backend', { mode: 'hybrid' });
+  const r = await (await report({ t: 25.5, h: 60 })).json();
+  assert.equal(r.backend, 'hybrid');
+  assert.equal(DB.db.prepare('SELECT temperature FROM samples').get().temperature, 25.5);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { return Response.json({ event: {} }); };
+  try {
+    await call('/api/ac', { action: 'off' });
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(DB.db.prepare('SELECT COUNT(*) AS n FROM ir_queue').get().n, 0);
+  assert.equal((await (await report({ t: 25.5, h: 60 })).json()).cmd, null);
+});
