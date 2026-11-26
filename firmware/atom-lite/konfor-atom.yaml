@@ -68,12 +68,14 @@ sensor:
 
 remote_transmitter:
   id: ir_tx
-  pin: GPIO12
+  pin:
+    number: GPIO12
+    inverted: false
+  eot_level: false
   carrier_duty_percent: 50%
   non_blocking: true
 
-# Hardware test, independent of the Worker: press the button on the Atom (side facing you, GPIO39) to send the "off" code
-# once. If the AC does not react to this at 3-5 cm, the IR LED or wiring is the problem, not the software.
+# Press GPIO39 to send the captured "off" frame once, independent of the Worker.
 binary_sensor:
   - platform: gpio
     pin:
@@ -81,6 +83,9 @@ binary_sensor:
       inverted: true
     name: IR test button
     internal: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
     on_press:
       - logger.log: "IR test: sending off"
       - remote_transmitter.transmit_raw:
