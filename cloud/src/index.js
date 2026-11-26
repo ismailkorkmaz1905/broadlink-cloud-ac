@@ -268,6 +268,8 @@ async function sensor(url, env) {
 // Everything the page refreshes each minute, in one request.
 async function state(env) {
   const now = Date.now();
+  const mode = await backend(env);
+  const dev = await env.DB.prepare("SELECT v FROM kv WHERE k = 'device'").first().catch(() => null);
   const [sample, prof, ac, hour, before] = await Promise.all([
     env.DB.prepare('SELECT temperature, humidity, at FROM samples ORDER BY at DESC LIMIT 1').first(),
     env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first(),
@@ -278,6 +280,7 @@ async function state(env) {
   return json({
     sample, profile: prof ? JSON.parse(prof.settings) : null, state: ac,
     hour: hour?.n ? { min: hour.min, max: hour.max } : null, before: before?.temperature ?? null,
+    backend: mode, device: dev ? JSON.parse(dev.v) : null,
     version: env.VERSION ?? 'dev', build: env.BUILD ?? 'local',
   });
 }
@@ -368,11 +371,12 @@ async function device(request, env) {
   return json({ ok: true, backend: esp ? 'esp' : 'broadlink', cmd });
 }
 
-// GET /api/backend, POST {mode: 'esp' | 'broadlink'} (x-key only). Switching back is instant; the other backend's data and secrets stay as they are.
+// GET /api/backend, POST {mode: 'esp' | 'broadlink'} (x-key, or the page itself via the cookie + Origin check). Switching back is instant; the other backend's data and secrets stay as they are.
 async function backendRoute(request, env, keyed) {
+  const sameOrigin = request.headers.get('origin') === new URL(request.url).origin;
   await diagTables(env);
   if (request.method === 'POST') {
-    if (!keyed) return json({ error: 'forbidden' }, 403);
+    if (!keyed && !sameOrigin) return json({ error: 'forbidden' }, 403);
     let body;
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
     if (!['esp', 'broadlink'].includes(body?.mode)) return json({ error: 'invalid', field: 'mode' }, 400);
