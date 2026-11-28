@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { plan, setpoint, nextCommand, rangeCommand, trimRange, boostTarget, MIN_GAP, STEP_GAP, RESEND, TRIM_AFTER, FAN_CHECK, MANUAL_HOLD } from '../cloud/public/policy.js';
+import { plan, setpoint, nextCommand, rangeCommand, trimRange, boostTarget, MIN_GAP, STEP_GAP, RESEND, TRIM_AFTER, FAN_CHECK, MANUAL_HOLD, TURBO_MS, turboEnd } from '../cloud/public/policy.js';
 
 const bandFor = target => ({ tMin: target - 1, tMax: target + 1 });
 
@@ -175,4 +175,14 @@ test('auto fan: 2 minutes after the command, a room that has not dropped 0.1 deg
   // quiet always blows: only the 20-minute rule above the range steps it (2026-11-25: quiet -> low in 6 minutes)
   assert.equal(nextCommand(band, 25.8, st({ temp: 25.8 }), T0 + FAN_CHECK + 1), null);
   assert.equal(nextCommand(band, 25.8, st({ fan: 'low', temp: 25.8 }), T0 + FAN_CHECK + 1), null);
+});
+
+test('turbo: left alone for 10 minutes, then trim floor on the low fan (or kept hard when the room is hot)', () => {
+  const turbo = st({ target: 18, fan: 'high', source: 'turbo' });
+  assert.equal(nextCommand(band, 25.2, turbo, T0 + TURBO_MS - 1), null);
+  assert.equal(nextCommand(band, 27, turbo, T0 + TURBO_MS - 1), null);
+  assert.deepEqual(nextCommand(band, 25.2, turbo, T0 + TURBO_MS), { action: 'cool', target: 22, fan: 'low' });
+  assert.deepEqual(nextCommand(band, 27.5, turbo, T0 + TURBO_MS), { action: 'cool', target: 18, fan: 'high' });
+  assert.equal(turboEnd(band, 25.2, st({ source: 'auto' }), T0 + TURBO_MS), null);
+  assert.equal(turboEnd(band, 23.5, turbo, T0 + TURBO_MS), null); // below the band: normal rules decide
 });

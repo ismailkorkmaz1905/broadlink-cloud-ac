@@ -32,6 +32,7 @@ function setup(profile) {
   const DB = makeDb();
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_25_auto', IR);
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_24_auto', IR);
+  DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('cool_18_high', IR);
   DB.db.prepare('INSERT INTO ir_codes (name, code) VALUES (?, ?)').run('off', IR);
   DB.db.prepare('INSERT INTO profile (id, settings, updated_at) VALUES (1, ?, 0)').run(JSON.stringify(profile));
   return { env: { DB, VIEW_KEY: 'k', BROADLINK_SESSION: SESSION, ASSETS: { fetch: async () => new Response('') } }, DB };
@@ -324,4 +325,14 @@ test('outdoor temperature is saved every 30 minutes and shown with the history',
   assert.deepEqual(DB.db.prepare('SELECT temperature FROM outdoor').all().map(r => r.temperature), [30.5]);
   const d = await (await worker.fetch(new Request('https://x.test/api/sensor?range=6s', { headers: { 'x-key': 'k' } }), env)).json();
   assert.equal(d.outdoor[0].temperature, 30.5);
+});
+
+test('turbo sends cool 18 high as a turbo run and leaves the range alone', async () => {
+  const { env, DB } = setup({ tMin: 23, tMax: 26, auto: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ event: {} });
+  try { assert.equal((await post(env, { turbo: true })).status, 200); } finally { globalThis.fetch = realFetch; }
+  const state = DB.db.prepare('SELECT power, target, fan, source, ok FROM ac_state').get();
+  assert.deepEqual({ ...state }, { power: 'on', target: 18, fan: 'high', source: 'turbo', ok: 1 });
+  assert.deepEqual(settings(DB), { tMin: 23, tMax: 26, auto: true });
 });

@@ -1,5 +1,5 @@
 import { readCloudSensor, sendIrCommand } from '../../lib/broadlink-app-cloud.js';
-import { FANS, FAN_LABEL, nextCommand, rangeCommand } from '../public/policy.js';
+import { FANS, FAN_LABEL, TURBO, nextCommand, rangeCommand, turboEnd } from '../public/policy.js';
 
 const headers = { 'Cache-Control': 'no-store' };
 const json = (body, status = 200) => Response.json(body, { status, headers });
@@ -68,11 +68,12 @@ async function patchProfile(env, patch) {
 async function control(env, sample) {
   const row = await env.DB.prepare('SELECT settings FROM profile WHERE id = 1').first();
   const cfg = row ? JSON.parse(row.settings) : {};
-  if (cfg.auto !== true || !Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
+  if (!Number.isFinite(cfg.tMin) || !Number.isFinite(cfg.tMax) || Date.now() - sample.at > 180000) return;
   let state = await env.DB.prepare('SELECT power, target, fan, at, source, ok FROM ac_state WHERE id = 1').first();
   // Room temperature when the last command was sent, so the policy can see whether the room has moved since.
   if (state?.at) state = { ...state, temp: (await env.DB.prepare('SELECT temperature FROM samples WHERE at <= ? ORDER BY at DESC LIMIT 1').bind(state.at).first())?.temperature ?? null };
-  const cmd = nextCommand(cfg, sample.temperature, state);
+  // A finished turbo run is ended even when the automation is off, so the AC is not left at 18 degrees on the high fan.
+  const cmd = cfg.auto === true ? nextCommand(cfg, sample.temperature, state) : turboEnd(cfg, sample.temperature, state);
   if (cmd) await sendAc(env, cmd.action, cmd.target ?? null, cmd.fan ?? null, cmd.source ?? 'auto', sample.temperature, 'auto');
 }
 
@@ -331,6 +332,11 @@ export default {
           if (auto) await env.DB.prepare("UPDATE ac_state SET source = 'auto' WHERE id = 1 AND source = 'manual'").run();
           await log(env, auto ? 'auto_on' : 'auto_off', null, null, 'manual', 1);
           if (body.action === undefined) return json({ ok: true, auto });
+        }
+        // Turbo: cool, 18 degrees, high fan; the automation (or turboEnd) takes over after 10 minutes.
+        if (body?.turbo === true) {
+          const result = await sendAc(env, 'cool', TURBO.target, TURBO.fan, 'turbo', undefined, 'manual');
+          return json(result, result.ok ? 200 : 502);
         }
         const bad = !['off', 'cool'].includes(body?.action) ? `action=${JSON.stringify(body?.action)}`
           : body.action === 'cool' && !(Number.isInteger(body.target) && body.target >= 18 && body.target <= 30) ? `target=${JSON.stringify(body.target)}`

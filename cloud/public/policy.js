@@ -43,6 +43,20 @@ export function plan(cfg, temp) {
   return { action: 'hold', over };
 }
 
+// Turbo button: cool at 18 degrees on the high fan for 10 minutes (laundry, cooking: the room is in range but feels hot),
+// then the normal control resumes. Stored on ac_state with source 'turbo'; the automation leaves it alone until it ends.
+export const TURBO_MS = 10 * 60000;
+export const TURBO = { target: 18, fan: 'high' };
+
+// What ends a turbo run: null while it runs (or if the state is not a turbo), else back to the trim floor on the low fan,
+// or on if the room is still hot / below the band (that is left to the normal rules).
+export function turboEnd(cfg, temp, state, now = Date.now()) {
+  if (state?.power !== 'on' || state.source !== 'turbo' || now - state.at < TURBO_MS) return null;
+  if (temp < cfg.tMin) return null;
+  if (isHot(cfg, temp)) return { action: 'cool', target: state.target, fan: BOOST_FAN };
+  return { action: 'cool', target: trimRange(cfg)[0], fan: 'low' };
+}
+
 export const MIN_GAP = 10 * 60000;
 // Between two setpoint or fan steps: the AC takes 20-30 minutes to show a change in the room, so 10-minute steps kept
 // swinging the room across the whole range about once an hour (night of 2026-11-23, setpoint 23 <-> 26).
@@ -74,6 +88,10 @@ export function nextCommand(cfg, temp, state, now = Date.now()) {
   const e = temp - roomTarget(cfg);
   const [lo, hi] = trimRange(cfg);
   const hot = isHot(cfg, temp);
+  if (state?.power === 'on' && state.source === 'turbo' && state.ok) {
+    const end = turboEnd(cfg, temp, state, now);
+    if (end || age < TURBO_MS) return end;
+  }
   const resend = extra => (age > RESEND ? { action: 'cool', target: state.target, fan: state.fan, ...extra } : null);
   if (state?.power === 'on' && !state.ok) return age > MIN_GAP ? { action: 'cool', target: state.target, fan: state.fan, ...(state.source === 'manual' ? { source: 'manual' } : {}) } : null;
   // Restart at the trim ceiling, not at the setpoint it was switched off with: restarting at the floor (23) with the auto fan
